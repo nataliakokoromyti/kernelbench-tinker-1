@@ -178,7 +178,6 @@ src/kernelbench_tinker/
   ├── envs/
   │   ├── kernelbench_client.py       # KernelBench Python API wrapper
   │   ├── kernelbench_env.py          # Single-turn RL environment
-  │   └── multiturn_kernelbench_env.py # Multi-turn RL env (optional; not default)
   ├── training/
   │   ├── models.py                   # Model/renderer configuration
   │   ├── reward.py                   # Reward shaping
@@ -240,4 +239,3 @@ If empty or missing, training crashed before the first checkpoint was saved.
 - [Tinker Docs](https://tinker-docs.thinkingmachines.ai/)
 - [Tinker Cookbook](https://github.com/thinking-machines-lab/tinker-cookbook)
 - [KernelBench](https://github.com/ScalingIntelligence/KernelBench)
-- [Kevin-32B](https://cognition.ai/blog/kevin-32b) - Multi-turn kernel RL (Cognition)
