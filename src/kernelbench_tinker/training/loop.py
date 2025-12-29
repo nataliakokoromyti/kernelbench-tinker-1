@@ -724,7 +724,6 @@ async def run_training_loop(
                 reward_correctness_weight=cfg.dataset_builder.reward_correctness_weight,
                 reward_speed_weight=cfg.dataset_builder.reward_speed_weight,
                 reward_length_weight=cfg.dataset_builder.reward_length_weight,
-                reward_thinking_weight=cfg.dataset_builder.reward_thinking_weight,
                 renderer_name=cfg.dataset_builder.renderer_name,
                 test_fraction=cfg.dataset_builder.test_fraction,
                 prompt_option=cfg.dataset_builder.prompt_option,

@@ -210,7 +210,7 @@ class KernelBenchEnv(Env):
         eval_time = time.perf_counter() - eval_start
 
         # Compute reward
-        reward = compute_reward(eval_result, self.reward_config, thought_length=0)
+        reward = compute_reward(eval_result, self.reward_config)
 
         # Log the attempt
         logtree.log_text(f"Problem: Level {self.problem.level}, ID {self.problem.problem_id}")
@@ -300,7 +300,7 @@ class KernelBenchEnv(Env):
             "eval_result": eval_result,
             "reward": reward,
             "reward_breakdown": compute_reward_breakdown(
-                eval_result, self.reward_config, thought_length=0
+                eval_result, self.reward_config
             ),
             "metrics": metrics,
             "timestamp": time.time(),
@@ -497,7 +497,6 @@ class KernelBenchDatasetBuilder(RLDatasetBuilder):
     reward_correctness_weight: float = 1.0
     reward_speed_weight: float = 0.0
     reward_length_weight: float = 0.05  # Tie-breaking for uniform rewards
-    reward_thinking_weight: float = 0.0
 
     # Renderer
     renderer_name: str = "qwen3"
@@ -559,7 +558,6 @@ class KernelBenchDatasetBuilder(RLDatasetBuilder):
             correctness_weight=self.reward_correctness_weight,
             speed_weight=self.reward_speed_weight,
             length_weight=self.reward_length_weight,
-            thinking_weight=self.reward_thinking_weight,
         )
 
         # Configure Modal evaluator if enabled

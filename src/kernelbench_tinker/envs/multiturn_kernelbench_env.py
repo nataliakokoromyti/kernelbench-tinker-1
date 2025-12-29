@@ -524,7 +524,7 @@ class MultiTurnKernelBenchEnv(Env):
         eval_time = time.perf_counter() - eval_start
 
         # Compute per-step score
-        step_score = compute_reward(eval_result, self.reward_config, thought_length=0)
+        step_score = compute_reward(eval_result, self.reward_config)
         state.step_scores.append(step_score)
 
         # Store in history
@@ -648,7 +648,7 @@ class MultiTurnKernelBenchEnv(Env):
             "eval_result": eval_result,
             "reward": reward,
             "reward_breakdown": compute_reward_breakdown(
-                eval_result, self.reward_config, thought_length=0
+                eval_result, self.reward_config
             ),
             "metrics": metrics,
             "state": {
@@ -858,7 +858,6 @@ class MultiTurnKernelBenchDatasetBuilder(RLDatasetBuilder):
     reward_correctness_weight: float = 1.0
     reward_speed_weight: float = 0.0
     reward_length_weight: float = 0.05
-    reward_thinking_weight: float = 0.0
 
     # Renderer
     renderer_name: str = "qwen3"
@@ -916,7 +915,6 @@ class MultiTurnKernelBenchDatasetBuilder(RLDatasetBuilder):
             correctness_weight=self.reward_correctness_weight,
             speed_weight=self.reward_speed_weight,
             length_weight=self.reward_length_weight,
-            thinking_weight=self.reward_thinking_weight,
         )
 
         # Configure Modal evaluator if enabled
