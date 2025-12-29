@@ -3,7 +3,7 @@
 #
 # Configuration aligned with Kevin-32B paper (arXiv:2507.11948):
 # - Multi-turn refinement with discounted returns (gamma=0.4)
-# - Kevin reward formula: S = 0.3·correct + speedup
+# - Kevin reward formula: S = 0.3??correct + speedup
 # - No length penalties (causes response collapse)
 # - No thinking rewards (thinking removed from prompts)
 # - Binary correctness (no partial credit)
@@ -15,8 +15,8 @@
 #   MODAL_TOKEN_SECRET   - Modal API token secret
 #
 # Usage:
-#   python -m kernel_rl.scripts.train_kernel_rl \
-#       --config kernel_rl/config/rl_kernelbench.yaml \
+#   python -m kernelbench_tinker.scripts.train_kernel_rl \
+#       --config src/kernelbench_tinker/config/rl_kernelbench.yaml \
 #       log_path=./runs/my_experiment
 
 # =============================================================================
@@ -62,7 +62,7 @@ remove_constant_reward_groups: true
 # =============================================================================
 # Logging and Checkpointing
 # =============================================================================
-log_path: "./runs/kernel_rl"
+log_path: "./runs/kernelbench_tinker"
 save_every: 1 # Save after every batch (kernel eval can crash GPU)
 eval_every: 10
 
@@ -83,7 +83,7 @@ dataset_builder:
     dataset_src: "huggingface"
 
     # Training configuration
-    # Kevin: 8 tasks × 16 trajectories = 128 samples per batch
+    # Kevin: 8 tasks ?? 16 trajectories = 128 samples per batch
     # Adjust based on your GPU memory
     batch_size: 8 # Kevin uses 8 tasks per batch
     group_size: 16 # Kevin uses 16 parallel trajectories per task
@@ -96,7 +96,7 @@ dataset_builder:
 
     # ==========================================================================
     # Reward configuration (Kevin-32B compatible)
-    # Kevin formula: S = 0.3·correct + speedup
+    # Kevin formula: S = 0.3??correct + speedup
     # ==========================================================================
     reward_format_weight: 0.0 # Kevin doesn't use
     reward_compile_weight: 0.0 # Kevin doesn't use

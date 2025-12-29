@@ -22,7 +22,7 @@ import logging
 import torch
 
 if TYPE_CHECKING:
-    from kernel_rl.rag.retriever import KernelRetriever
+    from kernelbench_tinker.rag.retriever import KernelRetriever
 
 logger = logging.getLogger(__name__)
 
@@ -168,7 +168,7 @@ async def get_global_retriever(index_path: str | None = None) -> "KernelRetrieve
         async with lock:
             # Double-check after acquiring lock
             if _global_retriever is None:
-                from kernel_rl.rag.retriever import KernelRetriever
+                from kernelbench_tinker.rag.retriever import KernelRetriever
                 logger.info(f"Loading RAG index from {index_path}")
                 _global_retriever = KernelRetriever.load(index_path)
 
@@ -464,7 +464,7 @@ def get_raicl_prompt_for_code(
             include_hardware=False,
         )
 
-    from kernel_rl.rag.prompt_builder import RAICLPromptBuilder
+    from kernelbench_tinker.rag.prompt_builder import RAICLPromptBuilder
 
     builder = RAICLPromptBuilder(retriever)
     return builder.build_prompt(ref_code, backend, k=k)
@@ -658,7 +658,7 @@ async def evaluate_kernel_async(
     Returns:
         KernelEvalResult with evaluation results
     """
-    from kernel_rl.modal.evaluator import (
+    from kernelbench_tinker.modal.evaluator import (
         ModalEvaluatorConfig,
         get_modal_evaluator,
     )
@@ -825,7 +825,7 @@ async def evaluate_kernel_batch_async(
     Returns:
         List of KernelEvalResult dicts in same order as input
     """
-    from kernel_rl.modal.evaluator import (
+    from kernelbench_tinker.modal.evaluator import (
         ModalEvaluatorConfig,
         get_modal_evaluator,
     )
@@ -1016,7 +1016,7 @@ class KernelBenchProblem:
 
     def get_raicl_system_prompt(self) -> str:
         """Get the RA-ICL system prompt for this backend."""
-        from kernel_rl.rag.prompt_builder import RAICLPromptBuilder
+        from kernelbench_tinker.rag.prompt_builder import RAICLPromptBuilder
         retriever = get_global_retriever_sync()
         if retriever is None:
             return ""

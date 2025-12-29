@@ -3,16 +3,16 @@
 CLI entrypoint for KernelBench RL training.
 
 Usage:
-    uv run python -m kernel_rl.scripts.train_kernel_rl \
+    uv run python -m kernelbench_tinker.scripts.train_kernel_rl \
         model_name=Qwen/Qwen2.5-Coder-7B-Instruct \
-        log_path=./runs/kernel_rl_v1 \
+        log_path=./runs/kernelbench_tinker_v1 \
         dataset_builder.level=1 \
         dataset_builder.batch_size=4 \
         dataset_builder.group_size=4
 
 With a config file:
-    uv run python -m kernel_rl.scripts.train_kernel_rl \
-        --config kernel_rl/config/rl_kernelbench.yaml \
+    uv run python -m kernelbench_tinker.scripts.train_kernel_rl \
+        --config src/kernelbench_tinker/config/rl_kernelbench.yaml \
         log_path=./runs/my_experiment
 """
 
@@ -27,8 +27,8 @@ from typing import Any
 import chz
 import yaml
 
-from kernel_rl.env import setup_environment
-from kernel_rl.training.loop import TrainingConfig, main as train_main
+from kernelbench_tinker.env import setup_environment
+from kernelbench_tinker.training.loop import TrainingConfig, main as train_main
 
 # Configure logging
 logging.basicConfig(

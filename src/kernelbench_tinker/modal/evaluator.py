@@ -6,7 +6,7 @@ using Modal Labs' isolated GPU containers.
 
 Usage:
     Before running evaluations, deploy the Modal app:
-        modal deploy kernel_rl/modal/app.py
+        modal deploy src/kernelbench_tinker/modal/app.py
 
     Then evaluations will use the deployed functions via Cls.from_name().
 """
@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from kernel_rl.envs.kernelbench_client import KernelEvalResult
+    from kernelbench_tinker.envs.kernelbench_client import KernelEvalResult
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +64,7 @@ class ModalKernelEvaluator:
 
     The evaluator can work in two modes:
     1. "deployed" (default): Uses a pre-deployed Modal app via Cls.from_name()
-       - Requires running `modal deploy kernel_rl/modal/app.py` first
+       - Requires running `modal deploy src/kernelbench_tinker/modal/app.py` first
        - Faster startup, no cold boot overhead
        - Recommended for production
 
@@ -116,7 +116,7 @@ class ModalKernelEvaluator:
 
         import modal
 
-        from kernel_rl.modal.app import get_gpu_arch
+        from kernelbench_tinker.modal.app import get_gpu_arch
 
         # Look up the deployed class by name
         try:
@@ -126,7 +126,7 @@ class ModalKernelEvaluator:
         except modal.exception.NotFoundError:
             raise RuntimeError(
                 f"Modal app '{MODAL_APP_NAME}' not found. "
-                f"Please deploy first: modal deploy kernel_rl/modal/app.py"
+                f"Please deploy first: modal deploy src/kernelbench_tinker/modal/app.py"
             )
 
         return self._deployed_cls

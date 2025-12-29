@@ -32,7 +32,7 @@ from tinker_cookbook.rl.types import (
 )
 from tinker_cookbook.utils import logtree
 
-from kernel_rl.envs.kernelbench_client import (
+from kernelbench_tinker.envs.kernelbench_client import (
     KernelBenchProblem,
     KernelEvalResult,
     ParsedResponse,
@@ -44,8 +44,8 @@ from kernel_rl.envs.kernelbench_client import (
     get_global_retriever,
     set_global_retriever,
 )
-from kernel_rl.training.reward import compute_reward, compute_reward_breakdown, RewardConfig
-from kernel_rl.training.trace_logger import get_trace_logger
+from kernelbench_tinker.training.reward import compute_reward, compute_reward_breakdown, RewardConfig
+from kernelbench_tinker.training.trace_logger import get_trace_logger
 
 logger = logging.getLogger(__name__)
 
@@ -544,7 +544,7 @@ class KernelBenchDatasetBuilder(RLDatasetBuilder):
         if self.prompt_option == "raicl":
             if not self.rag_index_path:
                 raise ValueError("rag_index_path is required when using raicl prompt_option")
-            from kernel_rl.rag.retriever import KernelRetriever
+            from kernelbench_tinker.rag.retriever import KernelRetriever
             retriever = KernelRetriever.load(self.rag_index_path)
             set_global_retriever(retriever)
             logger.info(f"Loaded RAG index from {self.rag_index_path}")
@@ -595,7 +595,7 @@ class KernelBenchDatasetBuilder(RLDatasetBuilder):
 
         # Configure Modal evaluator if enabled
         if self.use_modal:
-            from kernel_rl.modal.evaluator import ModalEvaluatorConfig, set_modal_evaluator, ModalKernelEvaluator
+            from kernelbench_tinker.modal.evaluator import ModalEvaluatorConfig, set_modal_evaluator, ModalKernelEvaluator
             modal_config = ModalEvaluatorConfig(
                 enabled=True,
                 gpu_type=self.modal_gpu_type,

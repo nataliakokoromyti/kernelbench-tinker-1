@@ -45,14 +45,14 @@ from tinker_cookbook.tokenizer_utils import Tokenizer
 from tinker_cookbook.utils import ml_log
 from tinker_cookbook.utils.misc_utils import timed
 
-from kernel_rl.envs.kernelbench_env import KernelBenchDatasetBuilder
-from kernel_rl.envs.multiturn_kernelbench_env import (
+from kernelbench_tinker.envs.kernelbench_env import KernelBenchDatasetBuilder
+from kernelbench_tinker.envs.multiturn_kernelbench_env import (
     MultiTurnKernelBenchDatasetBuilder,
     MultiTurnKernelBenchEnv,
 )
-from kernel_rl.training.models import ModelConfig, get_adam_params
-from kernel_rl.training.reward import compute_discounted_returns
-from kernel_rl.training.trace_logger import TraceLogger, set_trace_logger
+from kernelbench_tinker.training.models import ModelConfig, get_adam_params
+from kernelbench_tinker.training.reward import compute_discounted_returns
+from kernelbench_tinker.training.trace_logger import TraceLogger, set_trace_logger
 
 
 def remove_mask(datum: tinker.Datum) -> tinker.Datum:
@@ -67,7 +67,7 @@ def remove_mask(datum: tinker.Datum) -> tinker.Datum:
     )
 
 
-from kernel_rl.training.tensorboard_logger import (
+from kernelbench_tinker.training.tensorboard_logger import (
     TensorBoardLogger,
     TensorBoardConfig,
     create_tensorboard_logger,
@@ -113,7 +113,7 @@ class TrainingConfig:
     kl_discount_factor: float = 0.0
 
     # Logging and checkpointing
-    log_path: str = "./runs/kernel_rl"
+    log_path: str = "./runs/kernelbench_tinker"
     save_every: int = 10  # Save checkpoint every N batches
     eval_every: int = 10  # Evaluate every N batches
 

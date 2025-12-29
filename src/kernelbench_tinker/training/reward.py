@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from kernel_rl.envs.kernelbench_client import KernelEvalResult
+    from kernelbench_tinker.envs.kernelbench_client import KernelEvalResult
 
 
 @dataclass
@@ -33,7 +33,7 @@ class RewardConfig:
 
     # ==========================================================================
     # Kevin-compatible reward weights
-    # Kevin formula: S = 0.3·𝟙{correct} + (T_baseline/T_kernel)·𝟙{correct}
+    # Kevin formula: S = 0.3??????{correct} + (T_baseline/T_kernel)??????{correct}
     # ==========================================================================
     format_weight: float = 0.0  # Kevin doesn't use format reward
     compile_weight: float = 0.0  # Kevin doesn't use compile reward
@@ -278,7 +278,7 @@ def compute_reward(
     Compute the total reward for a kernel evaluation.
 
     Kevin-32B formula (arXiv:2507.11948):
-        S = 0.3·𝟙{correct} + (T_baseline/T_kernel)·𝟙{correct}
+        S = 0.3??????{correct} + (T_baseline/T_kernel)??????{correct}
 
     Key behaviors:
     - Zero reward for cheating (PyTorch wrapping, try-except, pass)
@@ -331,8 +331,8 @@ def compute_reward(
 
     # ==========================================================================
     # Kevin-style reward computation
-    # Formula: S = correctness_weight·correct + speed_weight·speedup
-    # With default Kevin weights: S = 0.3·correct + 1.0·speedup
+    # Formula: S = correctness_weight??correct + speed_weight??speedup
+    # With default Kevin weights: S = 0.3??correct + 1.0??speedup
     # ==========================================================================
 
     # Correctness reward (binary by default)
