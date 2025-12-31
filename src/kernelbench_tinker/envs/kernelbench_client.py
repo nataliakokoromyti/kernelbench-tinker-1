@@ -300,6 +300,7 @@ def evaluate_kernel(
     num_perf_trials: int = 100,
     timing_method: str = "cuda_event",
     precision: str = "fp32",
+    gpu_arch: list[str] | None = None,
     check_for_excessive_speedup: bool = True,
     excessive_speedup_threshold: float = 10.0,
     build_dir_base: str | None = None,
@@ -371,8 +372,12 @@ def evaluate_kernel(
 
     # Import evaluation function
     from kernelbench.eval import eval_kernel_against_ref, get_torch_dtype_from_string
+    from kernelbench.utils import set_gpu_arch
 
     try:
+        if gpu_arch:
+            set_gpu_arch(gpu_arch)
+
         build_dir = None
         if build_dir_base:
             kernel_hash = hashlib.sha1(

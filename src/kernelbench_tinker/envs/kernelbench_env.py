@@ -94,8 +94,10 @@ class KernelBenchEnv(Env):
         system_prompt: str | None = None,
         num_correct_trials: int = 5,
         measure_performance: bool = False,
+        num_perf_trials: int = 100,
         timing_method: str = "cuda_event",
         precision: str = "fp32",
+        gpu_arch: list[str] | None = None,
         check_for_excessive_speedup: bool = True,
         excessive_speedup_threshold: float = 10.0,
         kernel_eval_build_dir: str | None = None,
@@ -121,8 +123,10 @@ class KernelBenchEnv(Env):
         self.system_prompt = system_prompt or DEFAULT_SYSTEM_PROMPT
         self.num_correct_trials = num_correct_trials
         self.measure_performance = measure_performance
+        self.num_perf_trials = num_perf_trials
         self.timing_method = timing_method
         self.precision = precision
+        self.gpu_arch = gpu_arch
         self.check_for_excessive_speedup = check_for_excessive_speedup
         self.excessive_speedup_threshold = excessive_speedup_threshold
         self.kernel_eval_build_dir = kernel_eval_build_dir
@@ -203,6 +207,7 @@ class KernelBenchEnv(Env):
                 dataset_src=self.problem.dataset_src,
                 num_correct_trials=self.num_correct_trials,
                 measure_performance=self.measure_performance,
+                num_perf_trials=self.num_perf_trials,
                 timing_method=self.timing_method,
                 precision=self.precision,
                 check_for_excessive_speedup=self.check_for_excessive_speedup,
@@ -219,8 +224,10 @@ class KernelBenchEnv(Env):
                 dataset_src=self.problem.dataset_src,
                 num_correct_trials=self.num_correct_trials,
                 measure_performance=self.measure_performance,
+                num_perf_trials=self.num_perf_trials,
                 timing_method=self.timing_method,
                 precision=self.precision,
+                gpu_arch=self.gpu_arch,
                 check_for_excessive_speedup=self.check_for_excessive_speedup,
                 excessive_speedup_threshold=self.excessive_speedup_threshold,
                 build_dir_base=self.kernel_eval_build_dir,
@@ -344,13 +351,10 @@ class KernelBenchEnvGroupBuilder(EnvGroupBuilder):
     system_prompt: str | None = None
     num_correct_trials: int = 5
     measure_performance: bool = False
+    num_perf_trials: int = 100
     timing_method: str = "cuda_event"
     precision: str = "fp32"
-    check_for_excessive_speedup: bool = True
-    excessive_speedup_threshold: float = 10.0
-    kernel_eval_build_dir: str | None = None
-    timing_method: str = "cuda_event"
-    precision: str = "fp32"
+    gpu_arch: list[str] | None = None
     check_for_excessive_speedup: bool = True
     excessive_speedup_threshold: float = 10.0
     kernel_eval_build_dir: str | None = None
@@ -367,8 +371,10 @@ class KernelBenchEnvGroupBuilder(EnvGroupBuilder):
                 system_prompt=self.system_prompt,
                 num_correct_trials=self.num_correct_trials,
                 measure_performance=self.measure_performance,
+                num_perf_trials=self.num_perf_trials,
                 timing_method=self.timing_method,
                 precision=self.precision,
+                gpu_arch=self.gpu_arch,
                 check_for_excessive_speedup=self.check_for_excessive_speedup,
                 excessive_speedup_threshold=self.excessive_speedup_threshold,
                 kernel_eval_build_dir=self.kernel_eval_build_dir,
@@ -416,8 +422,10 @@ class KernelBenchRLDataset(RLDataset):
         system_prompt: str | None = None,
         num_correct_trials: int = 5,
         measure_performance: bool = False,
+        num_perf_trials: int = 100,
         timing_method: str = "cuda_event",
         precision: str = "fp32",
+        gpu_arch: list[str] | None = None,
         check_for_excessive_speedup: bool = True,
         excessive_speedup_threshold: float = 10.0,
         kernel_eval_build_dir: str | None = None,
@@ -451,8 +459,10 @@ class KernelBenchRLDataset(RLDataset):
         self.system_prompt = system_prompt
         self.num_correct_trials = num_correct_trials
         self.measure_performance = measure_performance
+        self.num_perf_trials = num_perf_trials
         self.timing_method = timing_method
         self.precision = precision
+        self.gpu_arch = gpu_arch
         self.check_for_excessive_speedup = check_for_excessive_speedup
         self.excessive_speedup_threshold = excessive_speedup_threshold
         self.kernel_eval_build_dir = kernel_eval_build_dir
@@ -500,8 +510,10 @@ class KernelBenchRLDataset(RLDataset):
                 system_prompt=self.system_prompt,
                 num_correct_trials=self.num_correct_trials,
                 measure_performance=self.measure_performance,
+                num_perf_trials=self.num_perf_trials,
                 timing_method=self.timing_method,
                 precision=self.precision,
+                gpu_arch=self.gpu_arch,
                 check_for_excessive_speedup=self.check_for_excessive_speedup,
                 excessive_speedup_threshold=self.excessive_speedup_threshold,
                 kernel_eval_build_dir=self.kernel_eval_build_dir,
@@ -538,6 +550,8 @@ class KernelBenchDatasetBuilder(RLDatasetBuilder):
     # Evaluation configuration
     num_correct_trials: int = 5
     measure_performance: bool = False
+    num_perf_trials: int = 100
+    gpu_arch: list[str] | None = None
 
     # Reward configuration
     reward_format_weight: float = 0.1
@@ -636,8 +650,10 @@ class KernelBenchDatasetBuilder(RLDatasetBuilder):
             reward_config=reward_config,
             num_correct_trials=self.num_correct_trials,
             measure_performance=self.measure_performance,
+            num_perf_trials=self.num_perf_trials,
             timing_method=self.timing_method,
             precision=self.precision,
+            gpu_arch=self.gpu_arch,
             check_for_excessive_speedup=self.check_for_excessive_speedup,
             excessive_speedup_threshold=self.excessive_speedup_threshold,
             kernel_eval_build_dir=self.kernel_eval_build_dir,
@@ -658,8 +674,10 @@ class KernelBenchDatasetBuilder(RLDatasetBuilder):
                 reward_config=reward_config,
                 num_correct_trials=self.num_correct_trials,
                 measure_performance=self.measure_performance,
+                num_perf_trials=self.num_perf_trials,
                 timing_method=self.timing_method,
                 precision=self.precision,
+                gpu_arch=self.gpu_arch,
                 check_for_excessive_speedup=self.check_for_excessive_speedup,
                 excessive_speedup_threshold=self.excessive_speedup_threshold,
                 kernel_eval_build_dir=self.kernel_eval_build_dir,

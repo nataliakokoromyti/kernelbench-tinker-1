@@ -70,8 +70,10 @@ dataset_builder:
     # Evaluation configuration
     num_correct_trials: 5
     measure_performance: true
+    num_perf_trials: 100
     timing_method: "cuda_event"
     precision: "fp32"
+    gpu_arch: null
     check_for_excessive_speedup: true
     excessive_speedup_threshold: 10.0
     kernel_eval_build_dir: null

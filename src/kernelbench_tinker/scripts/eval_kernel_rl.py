@@ -70,8 +70,10 @@ class EvalConfig:
     # Evaluation settings
     num_correct_trials: int = 5
     measure_performance: bool = True
+    num_perf_trials: int = 100
     timing_method: str = "cuda_event"
     precision: str = "fp32"
+    gpu_arch: list[str] | None = None
     check_for_excessive_speedup: bool = True
     excessive_speedup_threshold: float = 10.0
 
@@ -165,8 +167,10 @@ async def evaluate_problem(
             dataset_src=problem.dataset_src,
             num_correct_trials=cfg.num_correct_trials,
             measure_performance=cfg.measure_performance,
+            num_perf_trials=cfg.num_perf_trials,
             timing_method=cfg.timing_method,
             precision=cfg.precision,
+            gpu_arch=cfg.gpu_arch,
             check_for_excessive_speedup=cfg.check_for_excessive_speedup,
             excessive_speedup_threshold=cfg.excessive_speedup_threshold,
         )
