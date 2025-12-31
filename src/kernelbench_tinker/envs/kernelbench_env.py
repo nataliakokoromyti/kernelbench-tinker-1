@@ -98,6 +98,7 @@ class KernelBenchEnv(Env):
         precision: str = "fp32",
         check_for_excessive_speedup: bool = True,
         excessive_speedup_threshold: float = 10.0,
+        kernel_eval_build_dir: str | None = None,
         use_modal: bool = True,
         modal_timeout: float = 120.0,
     ):
@@ -124,6 +125,7 @@ class KernelBenchEnv(Env):
         self.precision = precision
         self.check_for_excessive_speedup = check_for_excessive_speedup
         self.excessive_speedup_threshold = excessive_speedup_threshold
+        self.kernel_eval_build_dir = kernel_eval_build_dir
         self.use_modal = use_modal
         self.modal_timeout = modal_timeout
 
@@ -221,6 +223,7 @@ class KernelBenchEnv(Env):
                 precision=self.precision,
                 check_for_excessive_speedup=self.check_for_excessive_speedup,
                 excessive_speedup_threshold=self.excessive_speedup_threshold,
+                build_dir_base=self.kernel_eval_build_dir,
             )
         self._last_result = eval_result
         eval_time = time.perf_counter() - eval_start
@@ -346,10 +349,12 @@ class KernelBenchEnvGroupBuilder(EnvGroupBuilder):
     precision: str = "fp32"
     check_for_excessive_speedup: bool = True
     excessive_speedup_threshold: float = 10.0
+    kernel_eval_build_dir: str | None = None
     timing_method: str = "cuda_event"
     precision: str = "fp32"
     check_for_excessive_speedup: bool = True
     excessive_speedup_threshold: float = 10.0
+    kernel_eval_build_dir: str | None = None
     use_modal: bool = True
     modal_timeout: float = 120.0
 
@@ -367,6 +372,7 @@ class KernelBenchEnvGroupBuilder(EnvGroupBuilder):
                 precision=self.precision,
                 check_for_excessive_speedup=self.check_for_excessive_speedup,
                 excessive_speedup_threshold=self.excessive_speedup_threshold,
+                kernel_eval_build_dir=self.kernel_eval_build_dir,
                 use_modal=self.use_modal,
                 modal_timeout=self.modal_timeout,
             )
@@ -415,6 +421,7 @@ class KernelBenchRLDataset(RLDataset):
         precision: str = "fp32",
         check_for_excessive_speedup: bool = True,
         excessive_speedup_threshold: float = 10.0,
+        kernel_eval_build_dir: str | None = None,
         shuffle: bool = True,
         num_epochs: int = 1,
         use_modal: bool = True,
@@ -449,6 +456,7 @@ class KernelBenchRLDataset(RLDataset):
         self.precision = precision
         self.check_for_excessive_speedup = check_for_excessive_speedup
         self.excessive_speedup_threshold = excessive_speedup_threshold
+        self.kernel_eval_build_dir = kernel_eval_build_dir
         self.shuffle = shuffle
         self.num_epochs = num_epochs
         self.use_modal = use_modal
@@ -497,6 +505,7 @@ class KernelBenchRLDataset(RLDataset):
                 precision=self.precision,
                 check_for_excessive_speedup=self.check_for_excessive_speedup,
                 excessive_speedup_threshold=self.excessive_speedup_threshold,
+                kernel_eval_build_dir=self.kernel_eval_build_dir,
                 use_modal=self.use_modal,
                 modal_timeout=self.modal_timeout,
             )
@@ -546,6 +555,9 @@ class KernelBenchDatasetBuilder(RLDatasetBuilder):
 
     # Prompt configuration
     prompt_option: str = "one_shot"  # "zero_shot", "one_shot", "few_shot"
+    prompt_precision: str | None = None
+    prompt_include_hardware: bool = False
+    prompt_gpu_name: str | None = None
 
     # Modal configuration (isolated GPU evaluation)
     use_modal: bool = True  # Use Modal for isolated evaluation
@@ -574,6 +586,11 @@ class KernelBenchDatasetBuilder(RLDatasetBuilder):
                 backend=self.backend,
                 dataset_src=self.dataset_src,
                 prompt_option=self.prompt_option,
+                prompt_precision=self.prompt_precision or self.precision,
+                prompt_include_hardware=self.prompt_include_hardware,
+                prompt_gpu_name=self.prompt_gpu_name or (
+                    self.modal_gpu_type if self.prompt_include_hardware else None
+                ),
             )
             for pid in problem_ids
         ]
@@ -624,6 +641,7 @@ class KernelBenchDatasetBuilder(RLDatasetBuilder):
             precision=self.precision,
             check_for_excessive_speedup=self.check_for_excessive_speedup,
             excessive_speedup_threshold=self.excessive_speedup_threshold,
+            kernel_eval_build_dir=self.kernel_eval_build_dir,
             shuffle=self.shuffle,
             num_epochs=self.num_epochs,
             use_modal=self.use_modal,
@@ -645,6 +663,7 @@ class KernelBenchDatasetBuilder(RLDatasetBuilder):
                 precision=self.precision,
                 check_for_excessive_speedup=self.check_for_excessive_speedup,
                 excessive_speedup_threshold=self.excessive_speedup_threshold,
+                kernel_eval_build_dir=self.kernel_eval_build_dir,
                 shuffle=False,
                 num_epochs=1,
                 use_modal=self.use_modal,

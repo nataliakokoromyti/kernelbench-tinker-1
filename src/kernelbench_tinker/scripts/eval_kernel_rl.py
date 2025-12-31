@@ -75,6 +75,11 @@ class EvalConfig:
     check_for_excessive_speedup: bool = True
     excessive_speedup_threshold: float = 10.0
 
+    # Prompt configuration
+    prompt_option: str = "one_shot"
+    prompt_include_hardware: bool = False
+    prompt_gpu_name: str | None = None
+
     # Output
     output_path: str = "./eval_results.json"
 
@@ -224,6 +229,10 @@ async def run_evaluation(cfg: EvalConfig) -> dict[str, Any]:
             problem_id=pid,
             backend=cfg.backend,
             dataset_src=cfg.dataset_src,
+            prompt_option=cfg.prompt_option,
+            prompt_precision=cfg.precision,
+            prompt_include_hardware=cfg.prompt_include_hardware,
+            prompt_gpu_name=cfg.prompt_gpu_name,
         )
         for pid in problem_ids
     ]

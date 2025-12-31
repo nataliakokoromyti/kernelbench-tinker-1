@@ -65,6 +65,7 @@ src = { git = "https://github.com/ScalingIntelligence/KernelBench.git", rev = "4
 [project.scripts]
 train-kernel-rl = "kernelbench_tinker.scripts.train_kernel_rl:main"
 eval-kernel-rl = "kernelbench_tinker.scripts.eval_kernel_rl:main"
+run-and-check-kb = "kernelbench_tinker.scripts.run_and_check:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

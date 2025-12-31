@@ -317,6 +317,9 @@ def get_prompt_for_problem(
     backend: str = "triton",
     option: str = "one_shot",
     dataset_src: str = "huggingface",
+    precision: str | None = None,
+    include_hardware: bool = False,
+    gpu_name: str | None = None,
 ) -> str:
     """
     Get the prompt for a KernelBench problem.
@@ -327,6 +330,9 @@ def get_prompt_for_problem(
         backend: Backend type ("cuda", "triton", "cute", "tilelang")
         option: Prompt option ("zero_shot", "one_shot", "few_shot")
         dataset_src: Either "huggingface" or "local"
+        precision: Optional precision for prompt hints ("fp32", "fp16", "bf16")
+        include_hardware: Whether to include hardware guidance blocks
+        gpu_name: GPU identifier used when include_hardware is True (e.g., "A100")
 
     Returns:
         The prompt string for the model
@@ -340,8 +346,9 @@ def get_prompt_for_problem(
         ref_code,
         backend,
         option=option,
-        precision="fp32",
-        include_hardware=False,
+        precision=precision,
+        include_hardware=include_hardware,
+        gpu_name=gpu_name,
     )
 
     return prompt
@@ -360,6 +367,7 @@ def evaluate_kernel(
     precision: str = "fp32",
     check_for_excessive_speedup: bool = True,
     excessive_speedup_threshold: float = 10.0,
+    build_dir_base: str | None = None,
     device: torch.device | None = None,
     timeout: float = 180.0,
 ) -> KernelEvalResult:
@@ -435,6 +443,19 @@ def evaluate_kernel(
     from kernelbench.eval import eval_kernel_against_ref, get_torch_dtype_from_string
 
     try:
+        build_dir = None
+        if build_dir_base:
+            kernel_hash = hashlib.sha1(
+                kernel_code.encode("utf-8"), usedforsecurity=False
+            ).hexdigest()[:12]
+            build_dir = os.path.join(
+                build_dir_base,
+                f"level_{level}",
+                f"problem_{problem_id}",
+                kernel_hash,
+            )
+            os.makedirs(build_dir, exist_ok=True)
+
         result = eval_kernel_against_ref(
             original_model_src=ref_code,
             custom_model_src=kernel_code,
@@ -442,7 +463,7 @@ def evaluate_kernel(
             verbose=False,
             num_correct_trials=num_correct_trials,
             num_perf_trials=num_perf_trials,
-            build_dir=None,
+            build_dir=build_dir,
             device=device,
             backend=backend,
             precision=get_torch_dtype_from_string(precision),
@@ -880,6 +901,9 @@ class KernelBenchProblem:
     backend: str = "triton"
     dataset_src: str = "huggingface"
     prompt_option: str = "one_shot"  # "zero_shot", "one_shot", "few_shot"
+    prompt_precision: str | None = None
+    prompt_include_hardware: bool = False
+    prompt_gpu_name: str | None = None
 
     _ref_code: str | None = field(default=None, repr=False)
     _prompt: str | None = field(default=None, repr=False)
@@ -903,6 +927,9 @@ class KernelBenchProblem:
                 self.backend,
                 option=self.prompt_option,
                 dataset_src=self.dataset_src,
+                precision=self.prompt_precision,
+                include_hardware=self.prompt_include_hardware,
+                gpu_name=self.prompt_gpu_name,
             )
         return self._prompt
 
@@ -911,6 +938,7 @@ class KernelBenchProblem:
         kernel_code: str,
         num_correct_trials: int = 5,
         measure_performance: bool = False,
+        build_dir_base: str | None = None,
         device: torch.device | None = None,
     ) -> KernelEvalResult:
         """Evaluate a kernel solution for this problem."""
@@ -922,5 +950,6 @@ class KernelBenchProblem:
             dataset_src=self.dataset_src,
             num_correct_trials=num_correct_trials,
             measure_performance=measure_performance,
+            build_dir_base=build_dir_base,
             device=device,
         )

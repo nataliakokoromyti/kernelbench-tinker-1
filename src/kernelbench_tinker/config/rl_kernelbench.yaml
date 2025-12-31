@@ -74,6 +74,7 @@ dataset_builder:
     precision: "fp32"
     check_for_excessive_speedup: true
     excessive_speedup_threshold: 10.0
+    kernel_eval_build_dir: null
 
     # Reward configuration
     reward_format_weight: 0.0
@@ -90,6 +91,9 @@ dataset_builder:
 
     # Prompt configuration
     prompt_option: "one_shot"
+    prompt_precision: null
+    prompt_include_hardware: false
+    prompt_gpu_name: null
 
     # =============================================================================
     # Modal Configuration (Isolated GPU Evaluation)
