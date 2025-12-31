@@ -30,42 +30,38 @@ GPU_ARCH_MAPPING = {
 DEFAULT_GPU = "A100"
 DEFAULT_TIMEOUT = 120  # 2 minutes per kernel by default (tunable via config)
 
-# Get KernelBench root path (for local development)
-KERNELBENCH_ROOT = os.environ.get(
-    "KERNELBENCH_ROOT",
-    "/workspace/kernel_dev/KernelBench"
+# KernelBench install (default: pip install pinned git rev)
+KERNELBENCH_GIT_SPEC = os.environ.get(
+    "KERNELBENCH_GIT_SPEC",
+    "kernelbench @ git+https://github.com/ScalingIntelligence/KernelBench.git@404ee91422cdb78646947faba2cce4c03601bc52",
 )
+
+# Optional local override for KernelBench source (useful for dev)
+KERNELBENCH_ROOT = os.environ.get("KERNELBENCH_ROOT")
 
 # Build the Modal image with CUDA and KernelBench dependencies
 cuda_version = "12.8.0"
 flavor = "devel"  # includes full CUDA toolkit
 operating_sys = "ubuntu22.04"
 tag = f"{cuda_version}-{flavor}-{operating_sys}"
-kernelbench_src = os.path.join(KERNELBENCH_ROOT, "src")
 
 # Create image with CUDA, compilers, and Python dependencies
-# Use KernelBench requirements.txt to get all dependencies
-kernelbench_requirements = os.path.join(KERNELBENCH_ROOT, "requirements.txt")
-
 image = (
-    modal.Image.from_registry(f"nvidia/cuda:{tag}", add_python="3.11")
+    modal.Image.from_registry(f"nvidia/cuda:{tag}", add_python="3.10")
     .apt_install(
         "git",
         "gcc-10",
         "g++-10",
         "clang",
     )
+    .pip_install(KERNELBENCH_GIT_SPEC)
 )
-# Install requirements only if present to avoid failing when KERNELBENCH_ROOT is missing
-if os.path.exists(kernelbench_requirements):
-    image = image.pip_install_from_requirements(kernelbench_requirements)
-# Mount KernelBench src directory (module name "src" from KernelBench)
-if os.path.exists(kernelbench_src):
-    image = image.add_local_python_source(kernelbench_src)
-else:
-    # Fallback: try to mount a local src if available in this repo
-    if os.path.exists("src"):
-        image = image.add_local_python_source("src")
+
+# Optional: overlay local KernelBench source for development
+if KERNELBENCH_ROOT:
+    kernelbench_src = os.path.join(KERNELBENCH_ROOT, "src")
+    if os.path.exists(kernelbench_src):
+        image = image.add_local_python_source(kernelbench_src)
 
 # Create Modal App
 app = modal.App("kernel-rl-evaluator")
