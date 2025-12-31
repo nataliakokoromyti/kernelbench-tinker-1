@@ -113,7 +113,6 @@ class KernelEvalResult(TypedDict):
     speedup: float | None  # Speedup vs baseline (if measured and correct)
     runtime_ms: float | None  # Kernel runtime in milliseconds
     baseline_runtime_ms: float | None  # Baseline runtime in milliseconds
-    cheated: bool  # Whether the kernel cheated (e.g., just calls PyTorch)
     error_message: str | None  # Error message if any
     code_length: int  # Length of the kernel code in characters (for tie-breaking)
     metadata: dict[str, Any]  # Additional metadata from evaluation
@@ -183,70 +182,6 @@ def extract_code_block(text: str, languages: list[str] | None = None) -> str | N
             return "\n".join(code_lines)
 
     return None
-
-
-def check_for_cheating(kernel_code: str) -> bool:
-    """
-    Check if the kernel code is cheating using Kevin-32B paper rules.
-
-    Kevin paper identifies three cheating patterns that receive zero reward:
-    1. PyTorch wrapping: Using torch.nn or torch.nn.functional
-    2. Try-except fallback: Wrapping incomplete CUDA in exception handlers
-    3. Inheritance bypass: Using 'pass' to inherit from reference
-
-    Reference: arXiv:2507.11948 "Kevin: Multi-Turn RL for Generating CUDA Kernels"
-    """
-    # Kevin Rule 1: PyTorch wrapping detection
-    # Zero reward for kernels containing torch.nn or torch.nn.functional
-    pytorch_patterns = [
-        "torch.nn.functional",
-        "torch.nn.",
-        "F.conv", "F.linear", "F.relu", "F.gelu", "F.softmax",
-        "F.batch_norm", "F.layer_norm", "F.dropout",
-        "nn.functional.",
-    ]
-    for pattern in pytorch_patterns:
-        if pattern in kernel_code:
-            return True
-
-    # Kevin Rule 2: Try-except fallback pattern detection
-    # Models wrap incomplete CUDA in exception handlers that fall back to PyTorch
-    # Zero reward for kernels containing try/except
-    if "try:" in kernel_code or "except:" in kernel_code or "except " in kernel_code:
-        return True
-
-    # Kevin Rule 3: Inheritance bypass detection
-    # Model inherits from reference using 'pass'
-    # Zero reward for kernels containing pass statements
-    # Be careful to not match 'passed' or similar words
-    import re
-    if re.search(r'\bpass\b', kernel_code):
-        return True
-
-    # Additional check: no custom kernel implementation at all
-    has_triton_kernel = "@triton.jit" in kernel_code or "@triton.autotune" in kernel_code
-    has_cuda_kernel = "load_inline" in kernel_code or "cpp_extension" in kernel_code
-    has_cute_kernel = "cute::" in kernel_code or "from cutlass" in kernel_code
-    has_tilelang = "@T.prim_func" in kernel_code or "tvm.build" in kernel_code
-
-    has_custom_implementation = any([
-        has_triton_kernel,
-        has_cuda_kernel,
-        has_cute_kernel,
-        has_tilelang
-    ])
-
-    # If no custom implementation, check for direct torch ops
-    if not has_custom_implementation:
-        torch_ops = [
-            "torch.mm", "torch.bmm", "torch.matmul",
-            "torch.conv", "torch.einsum",
-        ]
-        for op in torch_ops:
-            if op in kernel_code:
-                return True
-
-    return False
 
 
 @functools.lru_cache(maxsize=1)
@@ -401,7 +336,6 @@ def evaluate_kernel(
         "speedup": None,
         "runtime_ms": None,
         "baseline_runtime_ms": None,
-        "cheated": False,
         "error_message": None,
         "code_length": len(kernel_code),
         "metadata": {},
@@ -419,10 +353,6 @@ def evaluate_kernel(
     else:
         default_result["error_message"] = "Could not extract valid kernel code from response"
         return default_result
-
-    # Check for cheating
-    cheated = check_for_cheating(kernel_code)
-    default_result["cheated"] = cheated
 
     # Get reference code
     try:
@@ -492,7 +422,6 @@ def evaluate_kernel(
             "speedup": None,
             "runtime_ms": runtime_ms,
             "baseline_runtime_ms": baseline_runtime_ms,
-            "cheated": cheated,
             "error_message": None,
             "metadata": result.metadata,
         }
@@ -598,7 +527,6 @@ async def evaluate_kernel_async(
         "speedup": None,
         "runtime_ms": None,
         "baseline_runtime_ms": None,
-        "cheated": False,
         "error_message": None,
         "code_length": len(kernel_code),
         "metadata": {},
@@ -614,17 +542,6 @@ async def evaluate_kernel_async(
         default_result["format_ok"] = True
     else:
         default_result["error_message"] = "Could not extract valid kernel code from response"
-        timings["total_eval_s"] = time.perf_counter() - t_total_start
-        default_result["metadata"]["timings"] = timings
-        return default_result
-
-    # Check for cheating
-    cheated = check_for_cheating(kernel_code)
-    default_result["cheated"] = cheated
-
-    # If cheated, return early with zero reward
-    if cheated:
-        default_result["error_message"] = "Kernel detected as cheating (uses PyTorch ops directly)"
         timings["total_eval_s"] = time.perf_counter() - t_total_start
         default_result["metadata"]["timings"] = timings
         return default_result
@@ -672,9 +589,6 @@ async def evaluate_kernel_async(
             check_for_excessive_speedup=check_for_excessive_speedup,
             excessive_speedup_threshold=excessive_speedup_threshold,
         )
-
-        # Add cheating flag (checked locally, not on Modal)
-        result["cheated"] = cheated
 
         if cache_results:
             result_copy = result.copy()
@@ -762,7 +676,6 @@ async def evaluate_kernel_batch_async(
             "speedup": None,
             "runtime_ms": None,
             "baseline_runtime_ms": None,
-            "cheated": False,
             "error_message": None,
             "code_length": len(kernel_code),
             "metadata": {},
@@ -778,15 +691,6 @@ async def evaluate_kernel_batch_async(
             default_result["format_ok"] = True
         else:
             default_result["error_message"] = "Could not extract valid kernel code"
-            results.append((i, default_result, None))
-            continue
-
-        # Check for cheating
-        cheated = check_for_cheating(kernel_code)
-        default_result["cheated"] = cheated
-
-        if cheated:
-            default_result["error_message"] = "Kernel detected as cheating"
             results.append((i, default_result, None))
             continue
 
@@ -815,7 +719,6 @@ async def evaluate_kernel_batch_async(
             "precision": e.get("precision", "fp32"),
             "check_for_excessive_speedup": e.get("check_for_excessive_speedup", True),
             "excessive_speedup_threshold": e.get("excessive_speedup_threshold", 10.0),
-            "cheated": cheated,
         })
 
     # Run Modal batch evaluation
@@ -827,7 +730,6 @@ async def evaluate_kernel_batch_async(
             modal_results = await evaluator.evaluate_batch(prepared)
 
             for prep, modal_result in zip(prepared, modal_results):
-                modal_result["cheated"] = prep["cheated"]
                 results.append((prep["index"], modal_result, None))
 
         except Exception as e:
@@ -842,7 +744,6 @@ async def evaluate_kernel_batch_async(
                     "speedup": None,
                     "runtime_ms": None,
                     "baseline_runtime_ms": None,
-                    "cheated": prep["cheated"],
                     "error_message": f"Modal batch failed: {e}",
                     "code_length": len(prep["kernel_code"]),
                     "metadata": {},

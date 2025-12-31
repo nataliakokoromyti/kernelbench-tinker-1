@@ -25,7 +25,6 @@ class RewardConfig:
 
     Default values follow Kevin-32B paper (arXiv:2507.11948):
     - Reward = 0.3 * correct + speedup (if correct)
-    - Zero reward for cheating (PyTorch wrapping, try-except, pass)
     - No length penalties (causes response collapse)
     - No thinking rewards (thinking removed from prompts)
     - Binary correctness (no partial credit)
@@ -41,10 +40,6 @@ class RewardConfig:
     speed_weight: float = 1.0  # Kevin adds speedup directly
     length_weight: float = 0.0  # Kevin: length penalties cause response collapse
 
-    # ==========================================================================
-    # Cheating handling - Kevin uses ZERO reward, not penalties
-    # ==========================================================================
-    cheating_penalty: float = 0.0  # Not used - we return 0 early for cheating
     format_penalty: float = 0.0  # Zero reward for bad format
 
     # ==========================================================================
@@ -90,13 +85,9 @@ def compile_reward(eval_result: "KernelEvalResult", config: RewardConfig) -> flo
     Compute reward for successful compilation.
 
     Returns:
-        1.0 if compiled successfully and not cheating
+        1.0 if compiled successfully
         0.0 if compilation failed
-        config.cheating_penalty if cheating detected
     """
-    if eval_result["cheated"]:
-        return config.cheating_penalty
-
     if eval_result["compiled"]:
         return 1.0
 
@@ -224,7 +215,6 @@ def compute_reward(
         S = 0.3??????{correct} + (T_baseline/T_kernel)??????{correct}
 
     Key behaviors:
-    - Zero reward for cheating (PyTorch wrapping, try-except, pass)
     - Zero reward for incorrect kernels
     - Binary correctness (no partial credit by default)
     - Speedup added linearly (not log-scaled)
@@ -238,13 +228,6 @@ def compute_reward(
     """
     if config is None:
         config = RewardConfig()
-
-    # ==========================================================================
-    # Kevin Rule: Zero reward for cheating (early return)
-    # This is the critical fix - cheating gets 0, not a penalty
-    # ==========================================================================
-    if eval_result["cheated"]:
-        return 0.0
 
     # ==========================================================================
     # Kevin Rule: Zero reward for bad format

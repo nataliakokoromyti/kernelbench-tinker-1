@@ -253,7 +253,6 @@ class KernelBenchEnv(Env):
             "correctness": float(eval_result["correctness"]),
             "tests_passed": eval_result["tests_passed"],
             "tests_total": eval_result["tests_total"],
-            "cheated": float(eval_result["cheated"]),
         }
         if eval_result.get("speedup"):
             metrics["speedup"] = eval_result["speedup"]

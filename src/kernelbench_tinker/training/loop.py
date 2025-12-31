@@ -179,7 +179,6 @@ def compute_trajectory_metrics(
     all_format_ok = []
     all_compiled = []
     all_correct = []
-    all_cheated = []
     all_eval_times = []
     all_step_times = []
     all_ref_load_times = []
@@ -196,7 +195,6 @@ def compute_trajectory_metrics(
                     all_format_ok.append(trans.metrics.get("format_ok", 0))
                     all_compiled.append(trans.metrics.get("compiled", 0))
                     all_correct.append(trans.metrics.get("correctness", 0))
-                    all_cheated.append(trans.metrics.get("cheated", 0))
                     if "time/eval" in trans.metrics:
                         all_eval_times.append(trans.metrics["time/eval"])
                     if "time/step_total" in trans.metrics:
@@ -218,8 +216,6 @@ def compute_trajectory_metrics(
         metrics["kernel/compile_rate"] = float(np.mean(all_compiled))
     if all_correct:
         metrics["kernel/correct_rate"] = float(np.mean(all_correct))
-    if all_cheated:
-        metrics["kernel/cheat_rate"] = float(np.mean(all_cheated))
     if all_eval_times:
         metrics["time/eval_mean"] = float(np.mean(all_eval_times))
         metrics["time/eval_max"] = float(np.max(all_eval_times))

@@ -321,7 +321,6 @@ class ModalKernelEvaluator:
                         "speedup": None,
                         "runtime_ms": None,
                         "baseline_runtime_ms": None,
-                        "cheated": False,
                         "error_message": f"Modal execution failed: {str(result)}",
                         "code_length": len(evaluations[i]["kernel_code"]),
                         "metadata": {
