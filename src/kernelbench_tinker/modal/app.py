@@ -33,7 +33,7 @@ DEFAULT_TIMEOUT = 120  # 2 minutes per kernel by default (tunable via config)
 # KernelBench install (default: pip install pinned git rev)
 KERNELBENCH_GIT_SPEC = os.environ.get(
     "KERNELBENCH_GIT_SPEC",
-    "kernelbench @ git+https://github.com/ScalingIntelligence/KernelBench.git@404ee91422cdb78646947faba2cce4c03601bc52",
+    "src @ git+https://github.com/ScalingIntelligence/KernelBench.git@404ee91422cdb78646947faba2cce4c03601bc52",
 )
 
 # Optional local override for KernelBench source (useful for dev)
