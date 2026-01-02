@@ -1,1 +1,0 @@
-"""Bundled KernelBench prompt templates."""
