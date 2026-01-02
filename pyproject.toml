@@ -34,6 +34,8 @@ dependencies = [
     "tqdm",
     "chz",
     "python-dotenv",
+    "litellm",
+    "tomli",
     # Visualization
     "tensorboard>=2.15.0",
     # Modal Labs for isolated GPU evaluation

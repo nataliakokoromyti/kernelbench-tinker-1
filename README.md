@@ -105,6 +105,17 @@ uv run python -m kernelbench_tinker.scripts.train_kernel_rl \
     log_path=./runs/my_experiment
 ```
 
+### Stage 1 (Recommended First Run)
+
+If you see all-zero rewards, start with the Stage 1 config to emphasize format
+and compilation signal before correctness/speed:
+
+```bash
+uv run python -m kernelbench_tinker.scripts.train_kernel_rl \
+    --config src/kernelbench_tinker/config/rl_kernelbench_stage1.yaml \
+    log_path=./runs/my_experiment
+```
+
 ### Checkpoints and Resume
 
 Checkpoints are saved to Tinker cloud after every batch. The checkpoint paths are recorded in `{log_path}/checkpoints.jsonl`.
@@ -196,6 +207,15 @@ src/kernelbench_tinker/
 ```
 
 ## Troubleshooting
+
+### Windows Modal deploy encoding error
+If `modal deploy` fails with a charmap/Unicode error, switch the terminal to UTF-8 and retry:
+
+```powershell
+chcp 65001
+$env:PYTHONIOENCODING="utf-8"
+modal deploy src/kernelbench_tinker/modal/app.py
+```
 
 ### CUDA illegal memory access / Training crashes
 Generated kernels can sometimes corrupt GPU memory. This is handled by:
