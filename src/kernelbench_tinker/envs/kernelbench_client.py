@@ -18,6 +18,9 @@ import time
 from dataclasses import dataclass, field
 from typing import TypedDict, Optional, Any
 import logging
+import shutil
+from importlib import resources
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -127,7 +130,7 @@ def _ensure_kernelbench_imported() -> None:
             sys.path.insert(0, kernelbench_root)
 
     try:
-        import kernelbench  # noqa: F401
+        import src  # noqa: F401
         return
     except Exception:
         pass
@@ -137,6 +140,34 @@ def _ensure_kernelbench_imported() -> None:
             f"KernelBench not found at {kernelbench_root}. "
             "Set KERNELBENCH_ROOT environment variable or clone to /workspace/kernel_dev/KernelBench"
         )
+
+
+def _ensure_kernelbench_prompts() -> None:
+    """Ensure KernelBench prompt assets exist in the installed package."""
+    try:
+        import src as kernelbench_pkg  # type: ignore
+    except Exception:
+        return
+
+    pkg_root = Path(kernelbench_pkg.__file__).resolve().parent
+    target_dir = pkg_root / "prompts"
+    prompts_toml = target_dir / "prompts.toml"
+    if prompts_toml.exists():
+        return
+
+    try:
+        bundled_root = resources.files("kernelbench_tinker.assets.kernelbench_prompts")
+    except Exception:
+        return
+
+    with resources.as_file(bundled_root) as bundled_path:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        for item in bundled_path.iterdir():
+            dest = target_dir / item.name
+            if item.is_dir():
+                shutil.copytree(item, dest, dirs_exist_ok=True)
+            else:
+                shutil.copy2(item, dest)
 
 
 def extract_code_block(text: str, languages: list[str] | None = None) -> str | None:
@@ -185,8 +216,9 @@ def extract_code_block(text: str, languages: list[str] | None = None) -> str | N
 @functools.lru_cache(maxsize=1)
 def _load_hf_kernelbench_dataset():
     """Load the HuggingFace KernelBench dataset once per process."""
-    from datasets import load_dataset
+    from datasets import disable_progress_bar, load_dataset
 
+    disable_progress_bar()
     return load_dataset("ScalingIntelligence/KernelBench")
 
 
@@ -232,8 +264,8 @@ def get_reference_code(level: int, problem_id: int, dataset_src: str = "huggingf
         return problem_row["code"][0]
     else:
         _ensure_kernelbench_imported()
-        from kernelbench.dataset import construct_kernelbench_dataset
-        from kernelbench.utils import read_file
+        from src.dataset import construct_kernelbench_dataset
+        from src.utils import read_file
 
         dataset = construct_kernelbench_dataset(level)
         # problem_id is 1-indexed, dataset is 0-indexed
@@ -273,7 +305,8 @@ def get_prompt_for_problem(
     ref_code = get_reference_code(level, problem_id, dataset_src)
 
     _ensure_kernelbench_imported()
-    from kernelbench.prompt_constructor_toml import get_prompt_for_backend
+    _ensure_kernelbench_prompts()
+    from src.prompt_constructor_toml import get_prompt_for_backend
 
     prompt = get_prompt_for_backend(
         ref_code,
@@ -591,7 +624,7 @@ def get_problem_count(level: int, dataset_src: str = "huggingface") -> int:
         return len(level_data)
     else:
         _ensure_kernelbench_imported()
-        from kernelbench.dataset import construct_kernelbench_dataset
+        from src.dataset import construct_kernelbench_dataset
         return len(construct_kernelbench_dataset(level))
 
 

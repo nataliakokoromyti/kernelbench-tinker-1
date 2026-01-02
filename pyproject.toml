@@ -71,6 +71,9 @@ run-and-check-kb = "kernelbench_tinker.scripts.run_and_check:main"
 where = ["src"]
 include = ["kernelbench_tinker*"]
 
+[tool.setuptools.package-data]
+kernelbench_tinker = ["assets/kernelbench_prompts/**"]
+
 [tool.black]
 line-length = 100
 target-version = ["py311", "py312"]
