@@ -444,22 +444,26 @@ async def run_training_loop(
 
         # Collect rollouts (single-turn)
         with timed("rollout", metrics):
-            results = await asyncio.gather(*[
-                do_group_rollout_and_filter(
-                    sampling_client,
-                    builder,
-                    max_tokens=cfg.max_tokens,
-                    temperature=cfg.temperature,
-                    do_remove_constant_reward_groups=cfg.remove_constant_reward_groups,
-                )
-                for builder in env_group_builders
-            ], return_exceptions=True)
+            try:
+                results = await asyncio.gather(*[
+                    do_group_rollout_and_filter(
+                        sampling_client,
+                        builder,
+                        max_tokens=cfg.max_tokens,
+                        temperature=cfg.temperature,
+                        do_remove_constant_reward_groups=cfg.remove_constant_reward_groups,
+                    )
+                    for builder in env_group_builders
+                ], return_exceptions=True)
+            except Exception:
+                logger.exception("Group rollout failed during gather")
+                raise
 
         # Filter out None (removed constant reward groups) and exceptions
         trajectory_groups = []
         for tg in results:
             if isinstance(tg, Exception):
-                logger.warning(f"Group rollout failed: {tg}")
+                logger.error("Group rollout failed", exc_info=tg)
             elif tg is not None:
                 trajectory_groups.append(tg)
 
