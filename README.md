@@ -12,6 +12,8 @@ those results into RL rewards.
   - Runs evaluations through Modal for isolated executions
   - Computes rewards directly from KernelBench evaluation results
 
+KernelBench prompts are loaded from a local KernelBench checkout. You must set `KERNELBENCH_ROOT`.
+
 ## Quick Start
 ```bash
 # 1) Deploy Modal app for isolated GPU eval
@@ -44,20 +46,25 @@ cd /workspace/kernel_dev
 git clone https://github.com/nataliakokoromyti/kernelbench-tinker.git
 ```
 
-### 2. Install uv (if not already installed)
+### 2. Clone KernelBench
+```bash
+git clone https://github.com/ScalingIntelligence/KernelBench.git
+```
+
+### 3. Install uv (if not already installed)
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-### 3. Install dependencies
+### 4. Install dependencies
 
 ```bash
 cd /workspace/kernel_dev/kernelbench-tinker
 uv sync
 ```
 
-### 4. Configure environment variables
+### 5. Configure environment variables
 
 Copy the example environment file and add your API key:
 
@@ -69,6 +76,7 @@ Edit `.env` and set your Tinker API key (get it from https://console.tinker.thin
 
 ```bash
 TINKER_API_KEY=your-api-key-here
+KERNELBENCH_ROOT=/workspace/kernel_dev/KernelBench
 ```
 
 The `.env` file is automatically loaded when running scripts.
@@ -176,7 +184,7 @@ uv run python -m kernelbench_tinker.scripts.eval_kernel_rl \
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `TINKER_API_KEY` | Yes | API key from https://console.tinker.thinkingmachines.ai |
-| `KERNELBENCH_ROOT` | No | Optional local KernelBench override |
+| `KERNELBENCH_ROOT` | Yes | Path to local KernelBench checkout (must include `src/prompts`) |
 | `MODAL_TOKEN_ID` | Yes | Modal token ID |
 | `MODAL_TOKEN_SECRET` | Yes | Modal token secret |
 

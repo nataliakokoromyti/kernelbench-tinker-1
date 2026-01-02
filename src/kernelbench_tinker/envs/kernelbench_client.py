@@ -118,25 +118,19 @@ class KernelEvalResult(TypedDict):
 
 def _ensure_kernelbench_imported() -> None:
     """Ensure KernelBench modules are importable."""
-    kernelbench_root = os.environ.get("KERNELBENCH_ROOT", "/workspace/kernel_dev/KernelBench")
-    if os.path.exists(kernelbench_root):
-        kernelbench_src = os.path.join(kernelbench_root, "src")
-        if os.path.isdir(kernelbench_src) and kernelbench_src not in sys.path:
-            sys.path.insert(0, kernelbench_src)
-        elif kernelbench_root not in sys.path:
-            sys.path.insert(0, kernelbench_root)
-
-    try:
-        import kernelbench  # noqa: F401
-        return
-    except Exception:
-        pass
-
+    kernelbench_root = os.environ.get("KERNELBENCH_ROOT", "/workspace/KernelBench")
     if not os.path.exists(kernelbench_root):
         raise RuntimeError(
             f"KernelBench not found at {kernelbench_root}. "
-            "Set KERNELBENCH_ROOT environment variable or clone to /workspace/kernel_dev/KernelBench"
+            "Set KERNELBENCH_ROOT environment variable or clone to /workspace/KernelBench"
         )
+
+    if kernelbench_root not in sys.path:
+        sys.path.insert(0, kernelbench_root)
+
+    kernelbench_src = os.path.join(kernelbench_root, "src")
+    if os.path.isdir(kernelbench_src) and kernelbench_src not in sys.path:
+        sys.path.insert(0, kernelbench_src)
 
 
 def extract_code_block(text: str, languages: list[str] | None = None) -> str | None:
@@ -232,8 +226,8 @@ def get_reference_code(level: int, problem_id: int, dataset_src: str = "huggingf
         return problem_row["code"][0]
     else:
         _ensure_kernelbench_imported()
-        from kernelbench.dataset import construct_kernelbench_dataset
-        from kernelbench.utils import read_file
+        from src.dataset import construct_kernelbench_dataset
+        from src.utils import read_file
 
         dataset = construct_kernelbench_dataset(level)
         # problem_id is 1-indexed, dataset is 0-indexed
@@ -273,7 +267,7 @@ def get_prompt_for_problem(
     ref_code = get_reference_code(level, problem_id, dataset_src)
 
     _ensure_kernelbench_imported()
-    from kernelbench.prompt_constructor_toml import get_prompt_for_backend
+    from src.prompt_constructor_toml import get_prompt_for_backend
 
     prompt = get_prompt_for_backend(
         ref_code,
@@ -591,7 +585,7 @@ def get_problem_count(level: int, dataset_src: str = "huggingface") -> int:
         return len(level_data)
     else:
         _ensure_kernelbench_imported()
-        from kernelbench.dataset import construct_kernelbench_dataset
+        from src.dataset import construct_kernelbench_dataset
         return len(construct_kernelbench_dataset(level))
 
 
