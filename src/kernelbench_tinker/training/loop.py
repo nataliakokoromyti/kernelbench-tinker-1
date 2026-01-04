@@ -44,6 +44,11 @@ from tinker_cookbook.utils.misc_utils import timed
 
 from kernelbench_tinker.envs.kernelbench_env import KernelBenchDatasetBuilder
 from kernelbench_tinker.training.models import get_adam_params
+from kernelbench_tinker.training.tensorboard_logger import (
+    TensorBoardConfig,
+    TensorBoardLogger,
+    create_tensorboard_logger,
+)
 from kernelbench_tinker.training.trace_logger import TraceLogger, set_trace_logger
 
 
@@ -57,13 +62,6 @@ def remove_mask(datum: tinker.Datum) -> tinker.Datum:
         model_input=datum.model_input,
         loss_fn_inputs={k: v for k, v in datum.loss_fn_inputs.items() if k != "mask"},
     )
-
-
-from kernelbench_tinker.training.tensorboard_logger import (
-    TensorBoardLogger,
-    TensorBoardConfig,
-    create_tensorboard_logger,
-)
 
 logger = logging.getLogger(__name__)
 

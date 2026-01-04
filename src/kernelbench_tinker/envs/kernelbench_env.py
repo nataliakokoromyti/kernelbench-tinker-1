@@ -7,13 +7,11 @@ from tinker_cookbook.rl.types for training models to write GPU kernels.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import random
 import time
-from abc import abstractmethod
 from dataclasses import dataclass, field
-from typing import Sequence, Callable, Any
+from typing import Sequence, Any
 
 import chz
 import tinker
@@ -38,7 +36,6 @@ from kernelbench_tinker.envs.kernelbench_client import (
     ParsedResponse,
     evaluate_kernel_async,
     get_problem_ids,
-    extract_code_block,
     parse_structured_response,
 )
 from kernelbench_tinker.training.reward import (
@@ -182,7 +179,7 @@ class KernelBenchEnv(Env):
         self._turn += 1
 
         # Parse the response to get text
-        message, parse_success = self.renderer.parse_response(action)
+        message, _ = self.renderer.parse_response(action)
         response_text = message.get("content", "")
 
         # Parse structured response (extracts <KERNEL> block)
@@ -261,7 +258,6 @@ class KernelBenchEnv(Env):
         )
 
         # Single-turn: episode ends after first step
-        # TODO: Multi-turn support would continue here with compiler feedback
         episode_done = True
 
         return StepResult(

@@ -1,11 +1,11 @@
- # KernelBench ↔ Tinker Integration
+# KernelBench - Tinker Integration
 
-An end‑to‑end integration that lets [Tinker](https://tinker-docs.thinkingmachines.ai/) train models against [KernelBench](https://github.com/ScalingIntelligence/KernelBench) by generating kernels, evaluating them on Modal, and turning
+An end-to-end integration that lets [Tinker](https://tinker-docs.thinkingmachines.ai/) train models against [KernelBench](https://github.com/ScalingIntelligence/KernelBench) by generating kernels, evaluating them on Modal, and turning
 those results into RL rewards.
 
 ## Overview
 
-  This repo is a minimal **Tinker ↔ KernelBench integration** to fine-tune language models to write better GPU kernels (in the languages KB supports). It:
+  This repo is a minimal **Tinker - KernelBench integration** to fine-tune language models to write better GPU kernels (in the languages KB supports). It:
 
   - Uses **KernelBench** for prompts and kernel evaluation (compile/correctness/speed)
   - Uses **Tinker** for distributed LoRA fine-tuning with GRPO-style RL
@@ -32,10 +32,10 @@ just resume run=my_experiment
 ### Directory Structure
 
 ```
- /workspace/kernel_dev/
-  ├── kernelbench-tinker/   # This integration repo
-  ├── KernelBench/          # KernelBench benchmark
-  └── tinker-cookbook/      # Tinker cookbook examples
+/workspace/kernel_dev/
+   kernelbench-tinker/   # This integration repo
+   KernelBench/          # KernelBench benchmark
+   tinker-cookbook/      # Tinker cookbook examples
 ```
 
 ## Setup
@@ -86,7 +86,7 @@ The `.env` file is automatically loaded when running scripts.
 This repo wires Tinker RL to KernelBench evaluation. The training loop:
 - Samples kernels from the model according to KernelBench problems
 - Evaluates them with KernelBench via Modal using KB's eval harness
-- Converts results into rewards and updates the model with GRPO‑style RL
+- Converts results into rewards and updates the model with GRPOstyle RL
 - Saves checkpoints after every batch for crash recovery
   
 ### Using Justfile Commands
@@ -192,26 +192,26 @@ uv run python -m kernelbench_tinker.scripts.eval_kernel_rl \
 
 ```
 src/kernelbench_tinker/
-  ├── env.py                          # Environment variable loading
-  ├── envs/
-  │   ├── kernelbench_client.py       # KernelBench Python API wrapper
-  │   ├── kernelbench_env.py          # Single-turn RL environment
-  ├── training/
-  │   ├── models.py                   # Model/renderer configuration
-  │   ├── reward.py                   # Reward shaping
-  │   ├── loop.py                     # GRPO training loop
-  │   ├── tensorboard_logger.py       # TensorBoard logging
-  │   └── trace_logger.py             # JSONL trace logging
-  ├── evaluation/
-  │   └── eval_kernelbench.py         # Evaluation utilities
-  ├── scripts/
-  │   ├── train_kernel_rl.py          # Training CLI
-  │   └── eval_kernel_rl.py           # Evaluation CLI
-  ├── modal/
-  │   ├── app.py                      # Modal eval app
-  │   └── evaluator.py                # Modal evaluator client
-  └── config/
-      └── rl_kernelbench.yaml         # Default config
+  env.py                        # Environment variable loading
+  envs/
+    kernelbench_client.py       # KernelBench Python API wrapper
+    kernelbench_env.py          # Single-turn RL environment
+  training/
+    models.py                   # Model/renderer configuration
+    reward.py                   # Reward shaping
+    loop.py                     # GRPO training loop
+    tensorboard_logger.py       # TensorBoard logging
+    trace_logger.py             # JSONL trace logging
+  evaluation/
+    eval_kernelbench.py         # Evaluation utilities
+  scripts/
+    train_kernel_rl.py          # Training CLI
+    eval_kernel_rl.py           # Evaluation CLI
+  modal/
+    app.py                      # Modal eval app
+    evaluator.py                # Modal evaluator client
+  config/
+    rl_kernelbench.yaml         # Default config
 ```
 
 ## Troubleshooting

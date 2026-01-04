@@ -7,17 +7,16 @@ allowing direct evaluation of kernel code without going through the CLI scripts.
 
 from __future__ import annotations
 
-import asyncio
 import functools
 import hashlib
-from collections import OrderedDict
 import os
-import sys
 import re
+import sys
 import time
+from collections import OrderedDict
 from dataclasses import dataclass, field
-from typing import TypedDict, Optional, Any
 import logging
+from typing import Any, TypedDict
 
 logger = logging.getLogger(__name__)
 

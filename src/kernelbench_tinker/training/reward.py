@@ -32,7 +32,7 @@ class RewardConfig:
 
     # ==========================================================================
     # Kevin-compatible reward weights
-    # Kevin formula: S = 0.3??????{correct} + (T_baseline/T_kernel)??????{correct}
+    # Kevin formula: S = 0.3 * correct + (T_baseline/T_kernel) * correct
     # ==========================================================================
     format_weight: float = 0.0  # Kevin doesn't use format reward
     compile_weight: float = 0.0  # Kevin doesn't use compile reward
@@ -212,7 +212,7 @@ def compute_reward(
     Compute the total reward for a kernel evaluation.
 
     Kevin-32B formula (arXiv:2507.11948):
-        S = 0.3??????{correct} + (T_baseline/T_kernel)??????{correct}
+        S = 0.3 * correct + (T_baseline/T_kernel) * correct
 
     Key behaviors:
     - Zero reward for incorrect kernels
@@ -252,8 +252,8 @@ def compute_reward(
 
     # ==========================================================================
     # Kevin-style reward computation
-    # Formula: S = correctness_weight??correct + speed_weight??speedup
-    # With default Kevin weights: S = 0.3??correct + 1.0??speedup
+    # Formula: S = correctness_weight * correct + speed_weight * speedup
+    # With default Kevin weights: S = 0.3 * correct + 1.0 * speedup
     # ==========================================================================
 
     # Correctness reward (binary by default)
