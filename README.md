@@ -77,6 +77,8 @@ Edit `.env` and set your Tinker API key (get it from https://console.tinker.thin
 ```bash
 TINKER_API_KEY=your-api-key-here
 KERNELBENCH_ROOT=/workspace/kernel_dev/KernelBench
+MODAL_TOKEN_ID=your-modal-token-id
+MODAL_TOKEN_SECRET=your-modal-token-secret
 ```
 
 The `.env` file is automatically loaded when running scripts.
