@@ -127,6 +127,7 @@ class KernelEvaluator:
         Returns:
             Dict matching KernelEvalResult structure
         """
+        import tempfile
         try:
             from src.eval import eval_kernel_against_ref, get_torch_dtype_from_string
             from src.utils import set_gpu_arch
@@ -157,6 +158,11 @@ class KernelEvaluator:
         set_gpu_arch(gpu_arch)
 
         try:
+            # Isolate torch extension builds to avoid lock contention across evals.
+            # This is critical for CUDA inline compilation in parallel Modal workers.
+            build_dir = tempfile.mkdtemp(prefix="torch_ext_")
+            os.environ["TORCH_EXTENSIONS_DIR"] = build_dir
+
             eval_kwargs = {
                 "original_model_src": ref_code,
                 "custom_model_src": kernel_code,
@@ -169,6 +175,7 @@ class KernelEvaluator:
                 "timing_method": timing_method,
                 "check_for_excessive_speedup": check_for_excessive_speedup,
                 "excessive_speedup_threshold": excessive_speedup_threshold,
+                "build_dir": build_dir,
             }
             try:
                 result = eval_kernel_against_ref(**eval_kwargs)
@@ -180,7 +187,9 @@ class KernelEvaluator:
                     eval_kwargs.pop("check_for_excessive_speedup", None)
                 if "excessive_speedup_threshold" in msg:
                     eval_kwargs.pop("excessive_speedup_threshold", None)
-                if msg == str(exc) and "timing_method" not in msg and "check_for_excessive_speedup" not in msg and "excessive_speedup_threshold" not in msg:
+                if "build_dir" in msg:
+                    eval_kwargs.pop("build_dir", None)
+                if msg == str(exc) and "timing_method" not in msg and "check_for_excessive_speedup" not in msg and "excessive_speedup_threshold" not in msg and "build_dir" not in msg:
                     raise
                 result = eval_kernel_against_ref(**eval_kwargs)
             torch.cuda.empty_cache()
