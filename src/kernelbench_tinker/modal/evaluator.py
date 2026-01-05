@@ -17,11 +17,8 @@ import asyncio
 import logging
 import os
 import threading
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from kernelbench_tinker.envs.kernelbench_client import KernelEvalResult
+from dataclasses import dataclass
+from typing import Any, cast
 
 logger = logging.getLogger(__name__)
 
@@ -186,7 +183,7 @@ class ModalKernelEvaluator:
             check_for_excessive_speedup,
             excessive_speedup_threshold,
         )
-        return result
+        return cast(dict[str, Any], result)
 
     def _evaluate_single_sync(
         self,
@@ -222,7 +219,7 @@ class ModalKernelEvaluator:
             excessive_speedup_threshold=excessive_speedup_threshold,
         )
 
-        return result
+        return cast(dict[str, Any], result)
 
     async def evaluate_batch(
         self,
@@ -267,7 +264,7 @@ class ModalKernelEvaluator:
             self._evaluate_batch_sync,
             evaluations,
         )
-        return results
+        return cast(list[dict[str, Any]], results)
 
     def _evaluate_batch_sync(
         self, evaluations: list[dict[str, Any]]
@@ -331,7 +328,7 @@ class ModalKernelEvaluator:
                     }
                 )
             else:
-                processed.append(result)
+                processed.append(cast(dict[str, Any], result))
 
         return processed
 
@@ -381,7 +378,7 @@ class ModalKernelEvaluator:
             "check_for_excessive_speedup": check_for_excessive_speedup,
             "excessive_speedup_threshold": excessive_speedup_threshold,
         }
-        return await self._batcher.submit(request)
+        return cast(dict[str, Any], await self._batcher.submit(request))
 
 
 # Global evaluator instance (lazy initialized)
@@ -452,7 +449,7 @@ class ModalBatcher:
                 await self._flush_locked()
             elif self._flush_task is None:
                 self._flush_task = asyncio.create_task(self._flush_after_delay())
-        return await fut
+        return cast(dict[str, Any], await fut)
 
     async def _flush_after_delay(self):
         await asyncio.sleep(self.evaluator.config.batch_window_s)

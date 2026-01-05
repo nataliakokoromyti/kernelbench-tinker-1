@@ -18,7 +18,6 @@ import logging
 import os
 from pathlib import Path
 import time
-from dataclasses import dataclass, field
 from typing import Any
 
 import chz
@@ -300,7 +299,7 @@ async def save_checkpoint_and_get_sampling_client(
     Returns:
         Tuple of (sampling_client, metrics)
     """
-    metrics = {}
+    metrics: dict[str, Any] = {}
 
     with timed("save_checkpoint", metrics):
         # Always save checkpoint: at start (batch_idx == start_batch) or every save_every batches
@@ -355,7 +354,7 @@ async def run_training_loop(
         tb_logger = create_tensorboard_logger(cfg.log_path, tb_config)
         tb_logger.log_training_config(cfg)
 
-    logger.info(f"Starting KernelBench RL training")
+    logger.info("Starting KernelBench RL training")
     logger.info(f"Model: {cfg.model_name}")
     logger.info(f"Log path: {cfg.log_path}")
     if tb_logger:
@@ -479,7 +478,7 @@ async def run_training_loop(
 
         # Training step
         with timed("train", metrics):
-            training_logprobs = await train_step(
+            await train_step(
                 data,
                 training_client,
                 cfg.learning_rate,

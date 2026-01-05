@@ -249,7 +249,7 @@ class KernelEvaluator:
                 "metadata": dict(result.metadata),
             }
 
-        except (torch.cuda.CudaError, torch.AcceleratorError) as e:
+        except torch.cuda.CudaError as e:
             modal.experimental.stop_fetching_inputs()
             return {
                 "format_ok": True,

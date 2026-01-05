@@ -16,7 +16,7 @@ import time
 from collections import OrderedDict
 from dataclasses import dataclass, field
 import logging
-from typing import Any, TypedDict
+from typing import Any, TypedDict, cast
 
 logger = logging.getLogger(__name__)
 _EVAL_CACHE: OrderedDict[str, "KernelEvalResult"] = OrderedDict()
@@ -156,7 +156,7 @@ def extract_code_block(text: str, languages: list[str] | None = None) -> str | N
 
         matches = re.findall(pattern, text, re.DOTALL | re.IGNORECASE)
         if matches:
-            return matches[0].strip()
+            return cast(str, matches[0]).strip()
 
     # If no fenced block, try to find code that looks like a Python module
     # (contains class definitions, imports, etc.)
@@ -211,7 +211,7 @@ def get_reference_code(level: int, problem_id: int, dataset_src: str = "huggingf
         try:
             row = level_data[problem_id - 1]
             if row["problem_id"] == problem_id:
-                return row["code"]
+                return cast(str, row["code"])
         except Exception:
             pass  # Fall through to filter-based lookup
 
@@ -223,7 +223,7 @@ def get_reference_code(level: int, problem_id: int, dataset_src: str = "huggingf
         )
         if len(problem_row) == 0:
             raise ValueError(f"Problem {problem_id} not found in level {level}")
-        return problem_row["code"][0]
+        return cast(str, problem_row["code"][0])
     else:
         _ensure_kernelbench_imported()
         from src.dataset import construct_kernelbench_dataset
@@ -235,7 +235,7 @@ def get_reference_code(level: int, problem_id: int, dataset_src: str = "huggingf
         if problem_idx < 0 or problem_idx >= len(dataset):
             raise ValueError(f"Problem {problem_id} not found in level {level}")
 
-        return read_file(dataset[problem_idx])
+        return cast(str, read_file(dataset[problem_idx]))
 
 
 def get_prompt_for_problem(
@@ -278,7 +278,7 @@ def get_prompt_for_problem(
         gpu_name=gpu_name,
     )
 
-    return prompt
+    return cast(str, prompt)
 
 
 async def evaluate_kernel_async(
@@ -376,7 +376,7 @@ async def evaluate_kernel_async(
     # Cache lookup after format/cheating checks
     cache_key = _make_cache_key(kernel_code)
     if cache_results and cache_key in _eval_cache:
-        cached = _eval_cache[cache_key].copy()
+        cached = cast(KernelEvalResult, _eval_cache[cache_key].copy())
         cached["metadata"] = dict(cached.get("metadata", {}))
         cached["metadata"]["cache_hit"] = True
         cached["metadata"].setdefault("timings", timings)
@@ -404,21 +404,23 @@ async def evaluate_kernel_async(
     # Run evaluation on Modal
     modal_start = time.perf_counter()
     try:
-        result = await evaluator.evaluate_single_batched(
-            ref_code=ref_code,
-            kernel_code=kernel_code,
-            backend=backend,
-            num_correct_trials=num_correct_trials,
-            measure_performance=measure_performance,
-            num_perf_trials=num_perf_trials,
-            timing_method=timing_method,
-            precision=precision,
-            check_for_excessive_speedup=check_for_excessive_speedup,
-            excessive_speedup_threshold=excessive_speedup_threshold,
+        result = cast(
+            KernelEvalResult,
+            await evaluator.evaluate_single_batched(
+                ref_code=ref_code,
+                kernel_code=kernel_code,
+                backend=backend,
+                num_correct_trials=num_correct_trials,
+                measure_performance=measure_performance,
+                num_perf_trials=num_perf_trials,
+                timing_method=timing_method,
+                precision=precision,
+                check_for_excessive_speedup=check_for_excessive_speedup,
+                excessive_speedup_threshold=excessive_speedup_threshold,
+            ),
         )
-
         if cache_results:
-            result_copy = result.copy()
+            result_copy = cast(KernelEvalResult, result.copy())
             _eval_cache[cache_key] = result_copy
             _prune_cache()
 
@@ -444,7 +446,7 @@ async def evaluate_kernel_async(
         timings["total_eval_s"] = time.perf_counter() - t_total_start
         default_result["metadata"]["timings"] = timings
         if cache_results:
-            default_copy = default_result.copy()
+            default_copy = cast(KernelEvalResult, default_result.copy())
             _eval_cache[cache_key] = default_copy
             _prune_cache()
         return default_result

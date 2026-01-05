@@ -39,8 +39,11 @@ class ProblemResult:
 
     @property
     def best_speedup(self) -> float | None:
-        speedups = [s.get("speedup") for s in self.samples
-                   if s.get("correctness") and s.get("speedup") is not None]
+        speedups: list[float] = [
+            float(s["speedup"])
+            for s in self.samples
+            if s.get("correctness") and s.get("speedup") is not None
+        ]
         return max(speedups) if speedups else None
 
 

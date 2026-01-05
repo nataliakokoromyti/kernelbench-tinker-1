@@ -25,7 +25,7 @@ import sys
 from typing import Any
 
 import chz
-import yaml
+import yaml  # type: ignore[import-untyped]
 
 from kernelbench_tinker.env import setup_environment
 from kernelbench_tinker.training.loop import TrainingConfig, main as train_main

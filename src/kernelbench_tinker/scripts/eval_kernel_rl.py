@@ -18,13 +18,11 @@ import asyncio
 import json
 import logging
 import os
-import sys
 from dataclasses import dataclass, asdict
 from typing import Any
 
 import chz
 import tinker
-import torch
 from tqdm import tqdm
 
 from tinker_cookbook import renderers
@@ -187,23 +185,32 @@ async def evaluate_problem(
             **eval_result,
         })
 
+    def speedup_value(sample: dict[str, Any]) -> float:
+        speedup = sample.get("speedup")
+        return float(speedup) if isinstance(speedup, (int, float)) else 0.0
+
     # Find best result
-    correct_samples = [s for s in samples if s["correctness"]]
+    correct_samples = [s for s in samples if s.get("correctness")]
     if correct_samples:
         # Best by speedup
-        best = max(correct_samples, key=lambda s: s.get("speedup") or 0)
+        best = max(correct_samples, key=speedup_value)
     else:
         # Best by compilation
-        compiled = [s for s in samples if s["compiled"]]
+        compiled = [s for s in samples if s.get("compiled")]
         best = compiled[0] if compiled else samples[0]
+
+    best_speedup: float | None = None
+    speedup_obj = best.get("speedup")
+    if isinstance(speedup_obj, (int, float)):
+        best_speedup = float(speedup_obj)
 
     return EvalResult(
         level=problem.level,
         problem_id=problem.problem_id,
         samples=samples,
-        best_correct=best["correctness"],
-        best_compiled=best["compiled"],
-        best_speedup=best.get("speedup"),
+        best_correct=bool(best.get("correctness")),
+        best_compiled=bool(best.get("compiled")),
+        best_speedup=best_speedup,
     )
 
 

@@ -11,7 +11,7 @@ import logging
 import random
 import time
 from dataclasses import dataclass, field
-from typing import Sequence, Any
+from typing import Sequence
 
 import chz
 import tinker
@@ -208,8 +208,9 @@ class KernelBenchEnv(Env):
         if eval_result.get("speedup"):
             logtree.log_text(f"Speedup: {eval_result['speedup']:.2f}x")
         logtree.log_text(f"Reward: {reward:.3f}")
-        if eval_result.get("error_message"):
-            logtree.log_text(f"Error: {eval_result['error_message'][:200]}")
+        error_message = eval_result.get("error_message")
+        if error_message:
+            logtree.log_text(f"Error: {error_message[:200]}")
 
         # Build metrics
         metrics: Metrics = {
