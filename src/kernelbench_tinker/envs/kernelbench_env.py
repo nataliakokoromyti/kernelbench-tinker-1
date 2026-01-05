@@ -38,6 +38,7 @@ from kernelbench_tinker.envs.kernelbench_client import (
     get_problem_ids,
     parse_structured_response,
 )
+from kernelbench_tinker.config.configs import EvalConfig
 from kernelbench_tinker.training.reward import (
     compute_reward,
     compute_reward_breakdown,
@@ -89,15 +90,8 @@ class KernelBenchEnv(Env):
         self,
         problem: KernelBenchProblem,
         renderer: renderers.Renderer,
+        eval_config: EvalConfig | None = None,
         reward_config: RewardConfig | None = None,
-        num_correct_trials: int = 5,
-        measure_performance: bool = False,
-        num_perf_trials: int = 100,
-        timing_method: str = "cuda_event",
-        precision: str = "fp32",
-        check_for_excessive_speedup: bool = True,
-        excessive_speedup_threshold: float = 10.0,
-        modal_timeout: float = 120.0,
     ):
         """
         Initialize the KernelBench environment.
@@ -105,22 +99,13 @@ class KernelBenchEnv(Env):
         Args:
             problem: The KernelBench problem to solve
             renderer: Tinker renderer for formatting messages
+            eval_config: Configuration for kernel evaluation
             reward_config: Configuration for reward computation
-            num_correct_trials: Number of correctness trials for evaluation
-            measure_performance: Whether to measure kernel runtime
-            modal_timeout: Timeout in seconds for Modal evaluation
         """
         self.problem = problem
         self.renderer = renderer
+        self.eval_config = eval_config or EvalConfig()
         self.reward_config = reward_config or RewardConfig()
-        self.num_correct_trials = num_correct_trials
-        self.measure_performance = measure_performance
-        self.num_perf_trials = num_perf_trials
-        self.timing_method = timing_method
-        self.precision = precision
-        self.check_for_excessive_speedup = check_for_excessive_speedup
-        self.excessive_speedup_threshold = excessive_speedup_threshold
-        self.modal_timeout = modal_timeout
 
         self._current_prompt_messages: list[renderers.Message] | None = None
         self._current_observation: tinker.ModelInput | None = None
@@ -178,20 +163,21 @@ class KernelBenchEnv(Env):
 
         # Evaluate the kernel (Modal for isolated GPU execution)
         eval_start = time.perf_counter()
+        cfg = self.eval_config
         eval_result = await evaluate_kernel_async(
             level=self.problem.level,
             problem_id=self.problem.problem_id,
             backend=self.problem.backend,
             kernel_code=kernel_code,
             dataset_src=self.problem.dataset_src,
-            num_correct_trials=self.num_correct_trials,
-            measure_performance=self.measure_performance,
-            num_perf_trials=self.num_perf_trials,
-            timing_method=self.timing_method,
-            precision=self.precision,
-            check_for_excessive_speedup=self.check_for_excessive_speedup,
-            excessive_speedup_threshold=self.excessive_speedup_threshold,
-            timeout=self.modal_timeout,
+            num_correct_trials=cfg.num_correct_trials,
+            measure_performance=cfg.measure_performance,
+            num_perf_trials=cfg.num_perf_trials,
+            timing_method=cfg.timing_method,
+            precision=cfg.precision,
+            check_for_excessive_speedup=cfg.check_for_excessive_speedup,
+            excessive_speedup_threshold=cfg.excessive_speedup_threshold,
+            timeout=cfg.modal_timeout,
         )
         eval_time = time.perf_counter() - eval_start
 
@@ -304,15 +290,8 @@ class KernelBenchEnvGroupBuilder(EnvGroupBuilder):
     problem: KernelBenchProblem
     renderer: renderers.Renderer
     group_size: int  # Number of rollouts per problem
+    eval_config: EvalConfig = field(default_factory=EvalConfig)
     reward_config: RewardConfig = field(default_factory=RewardConfig)
-    num_correct_trials: int = 5
-    measure_performance: bool = False
-    num_perf_trials: int = 100
-    timing_method: str = "cuda_event"
-    precision: str = "fp32"
-    check_for_excessive_speedup: bool = True
-    excessive_speedup_threshold: float = 10.0
-    modal_timeout: float = 120.0
 
     async def make_envs(self) -> Sequence[Env]:
         """Create a group of environments for this problem."""
@@ -320,15 +299,8 @@ class KernelBenchEnvGroupBuilder(EnvGroupBuilder):
             KernelBenchEnv(
                 problem=self.problem,
                 renderer=self.renderer,
+                eval_config=self.eval_config,
                 reward_config=self.reward_config,
-                num_correct_trials=self.num_correct_trials,
-                measure_performance=self.measure_performance,
-                num_perf_trials=self.num_perf_trials,
-                timing_method=self.timing_method,
-                precision=self.precision,
-                check_for_excessive_speedup=self.check_for_excessive_speedup,
-                excessive_speedup_threshold=self.excessive_speedup_threshold,
-                modal_timeout=self.modal_timeout,
             )
             for _ in range(self.group_size)
         ]
@@ -367,17 +339,10 @@ class KernelBenchRLDataset(RLDataset):
         renderer: renderers.Renderer,
         batch_size: int,
         group_size: int,
+        eval_config: EvalConfig | None = None,
         reward_config: RewardConfig | None = None,
-        num_correct_trials: int = 5,
-        measure_performance: bool = False,
-        num_perf_trials: int = 100,
-        timing_method: str = "cuda_event",
-        precision: str = "fp32",
-        check_for_excessive_speedup: bool = True,
-        excessive_speedup_threshold: float = 10.0,
         shuffle: bool = True,
         num_epochs: int = 1,
-        modal_timeout: float = 180.0,
     ):
         """
         Initialize the RL dataset.
@@ -387,28 +352,19 @@ class KernelBenchRLDataset(RLDataset):
             renderer: Tinker renderer for formatting
             batch_size: Number of problems per batch
             group_size: Number of rollouts per problem
+            eval_config: Configuration for kernel evaluation
             reward_config: Reward configuration
-            num_correct_trials: Correctness trials per evaluation
-            measure_performance: Whether to measure runtime
             shuffle: Whether to shuffle problems each epoch
             num_epochs: Number of training epochs
-            modal_timeout: Timeout in seconds for Modal evaluation
         """
         self.problems = problems
         self.renderer = renderer
         self.batch_size = batch_size
         self.group_size = group_size
+        self.eval_config = eval_config or EvalConfig()
         self.reward_config = reward_config or RewardConfig()
-        self.num_correct_trials = num_correct_trials
-        self.measure_performance = measure_performance
-        self.num_perf_trials = num_perf_trials
-        self.timing_method = timing_method
-        self.precision = precision
-        self.check_for_excessive_speedup = check_for_excessive_speedup
-        self.excessive_speedup_threshold = excessive_speedup_threshold
         self.shuffle = shuffle
         self.num_epochs = num_epochs
-        self.modal_timeout = modal_timeout
 
         # Create shuffled indices for each epoch
         self._problem_indices: list[int] = []
@@ -445,15 +401,8 @@ class KernelBenchRLDataset(RLDataset):
                 problem=problem,
                 renderer=self.renderer,
                 group_size=self.group_size,
+                eval_config=self.eval_config,
                 reward_config=self.reward_config,
-                num_correct_trials=self.num_correct_trials,
-                measure_performance=self.measure_performance,
-                num_perf_trials=self.num_perf_trials,
-                timing_method=self.timing_method,
-                precision=self.precision,
-                check_for_excessive_speedup=self.check_for_excessive_speedup,
-                excessive_speedup_threshold=self.excessive_speedup_threshold,
-                modal_timeout=self.modal_timeout,
             )
             builders.append(builder)
 
@@ -558,6 +507,19 @@ class KernelBenchDatasetBuilder(RLDatasetBuilder):
         # Create renderer
         renderer = renderers.get_renderer(self.renderer_name, tokenizer)
 
+        # Create EvalConfig from flat YAML fields (single source of truth)
+        eval_config = EvalConfig(
+            num_correct_trials=self.num_correct_trials,
+            measure_performance=self.measure_performance,
+            num_perf_trials=self.num_perf_trials,
+            timing_method=self.timing_method,
+            precision=self.precision,
+            check_for_excessive_speedup=self.check_for_excessive_speedup,
+            excessive_speedup_threshold=self.excessive_speedup_threshold,
+            modal_gpu_type=self.modal_gpu_type,
+            modal_timeout=self.modal_timeout,
+        )
+
         # Create reward config
         reward_config = RewardConfig(
             format_weight=self.reward_format_weight,
@@ -567,15 +529,15 @@ class KernelBenchDatasetBuilder(RLDatasetBuilder):
             length_weight=self.reward_length_weight,
         )
 
-        # Configure Modal evaluator
+        # Configure Modal evaluator with the same config
         from kernelbench_tinker.modal.evaluator import ModalEvaluatorConfig, set_modal_evaluator, ModalKernelEvaluator
         modal_config = ModalEvaluatorConfig(
             enabled=True,
-            gpu_type=self.modal_gpu_type,
-            timeout=int(self.modal_timeout),
+            gpu_type=eval_config.modal_gpu_type,
+            timeout=int(eval_config.modal_timeout),
         )
         set_modal_evaluator(ModalKernelEvaluator(modal_config))
-        logger.info(f"Modal evaluator configured: GPU={self.modal_gpu_type}, timeout={self.modal_timeout}s")
+        logger.info(f"Modal evaluator configured: GPU={eval_config.modal_gpu_type}, timeout={eval_config.modal_timeout}s")
 
         # Create train dataset
         train_dataset = KernelBenchRLDataset(
@@ -583,17 +545,10 @@ class KernelBenchDatasetBuilder(RLDatasetBuilder):
             renderer=renderer,
             batch_size=self.batch_size,
             group_size=self.group_size,
+            eval_config=eval_config,
             reward_config=reward_config,
-            num_correct_trials=self.num_correct_trials,
-            measure_performance=self.measure_performance,
-            num_perf_trials=self.num_perf_trials,
-            timing_method=self.timing_method,
-            precision=self.precision,
-            check_for_excessive_speedup=self.check_for_excessive_speedup,
-            excessive_speedup_threshold=self.excessive_speedup_threshold,
             shuffle=self.shuffle,
             num_epochs=self.num_epochs,
-            modal_timeout=self.modal_timeout,
         )
 
         # Create test dataset if we have test problems
@@ -604,17 +559,11 @@ class KernelBenchDatasetBuilder(RLDatasetBuilder):
                 renderer=renderer,
                 batch_size=self.batch_size,
                 group_size=self.group_size,
+                eval_config=eval_config,
                 reward_config=reward_config,
-                num_correct_trials=self.num_correct_trials,
-                measure_performance=self.measure_performance,
-                num_perf_trials=self.num_perf_trials,
-                timing_method=self.timing_method,
-                precision=self.precision,
-                check_for_excessive_speedup=self.check_for_excessive_speedup,
-                excessive_speedup_threshold=self.excessive_speedup_threshold,
                 shuffle=False,
                 num_epochs=1,
-                modal_timeout=self.modal_timeout,
             )
 
         return train_dataset, test_dataset
+
