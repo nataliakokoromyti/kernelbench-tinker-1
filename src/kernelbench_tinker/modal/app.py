@@ -129,12 +129,8 @@ class KernelEvaluator:
             Dict matching KernelEvalResult structure
         """
         import tempfile
-        try:
-            from src.eval import eval_kernel_against_ref, get_torch_dtype_from_string
-            from src.utils import set_gpu_arch
-        except ModuleNotFoundError:
-            from kernelbench.eval import eval_kernel_against_ref, get_torch_dtype_from_string
-            from kernelbench.utils import set_gpu_arch
+        from kernelbench.eval import eval_kernel_against_ref, get_torch_dtype_from_string
+        from kernelbench.utils import set_gpu_arch
         import torch
         import time
         import modal.experimental
