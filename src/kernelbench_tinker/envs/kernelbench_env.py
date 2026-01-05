@@ -91,7 +91,6 @@ class KernelBenchEnv(Env):
         problem: KernelBenchProblem,
         renderer: renderers.Renderer,
         reward_config: RewardConfig | None = None,
-        system_prompt: str | None = None,
         num_correct_trials: int = 5,
         measure_performance: bool = False,
         num_perf_trials: int = 100,
@@ -108,7 +107,6 @@ class KernelBenchEnv(Env):
             problem: The KernelBench problem to solve
             renderer: Tinker renderer for formatting messages
             reward_config: Configuration for reward computation
-            system_prompt: Optional custom system prompt
             num_correct_trials: Number of correctness trials for evaluation
             measure_performance: Whether to measure kernel runtime
             modal_timeout: Timeout in seconds for Modal evaluation
@@ -116,7 +114,6 @@ class KernelBenchEnv(Env):
         self.problem = problem
         self.renderer = renderer
         self.reward_config = reward_config or RewardConfig()
-        self.system_prompt = system_prompt or DEFAULT_SYSTEM_PROMPT
         self.num_correct_trials = num_correct_trials
         self.measure_performance = measure_performance
         self.num_perf_trials = num_perf_trials
@@ -142,8 +139,7 @@ class KernelBenchEnv(Env):
         messages: list[renderers.Message] = []
 
         # Add system prompt if supported
-        if self.system_prompt:
-            messages.append({"role": "system", "content": self.system_prompt})
+        messages.append({"role": "system", "content": DEFAULT_SYSTEM_PROMPT})
 
         # Add the problem prompt as user message
         messages.append({"role": "user", "content": self.problem.prompt})
@@ -317,7 +313,6 @@ class KernelBenchEnvGroupBuilder(EnvGroupBuilder):
     renderer: renderers.Renderer
     group_size: int  # Number of rollouts per problem
     reward_config: RewardConfig = field(default_factory=RewardConfig)
-    system_prompt: str | None = None
     num_correct_trials: int = 5
     measure_performance: bool = False
     num_perf_trials: int = 100
@@ -334,7 +329,6 @@ class KernelBenchEnvGroupBuilder(EnvGroupBuilder):
                 problem=self.problem,
                 renderer=self.renderer,
                 reward_config=self.reward_config,
-                system_prompt=self.system_prompt,
                 num_correct_trials=self.num_correct_trials,
                 measure_performance=self.measure_performance,
                 num_perf_trials=self.num_perf_trials,
@@ -382,7 +376,6 @@ class KernelBenchRLDataset(RLDataset):
         batch_size: int,
         group_size: int,
         reward_config: RewardConfig | None = None,
-        system_prompt: str | None = None,
         num_correct_trials: int = 5,
         measure_performance: bool = False,
         num_perf_trials: int = 100,
@@ -403,7 +396,6 @@ class KernelBenchRLDataset(RLDataset):
             batch_size: Number of problems per batch
             group_size: Number of rollouts per problem
             reward_config: Reward configuration
-            system_prompt: Optional custom system prompt
             num_correct_trials: Correctness trials per evaluation
             measure_performance: Whether to measure runtime
             shuffle: Whether to shuffle problems each epoch
@@ -415,7 +407,6 @@ class KernelBenchRLDataset(RLDataset):
         self.batch_size = batch_size
         self.group_size = group_size
         self.reward_config = reward_config or RewardConfig()
-        self.system_prompt = system_prompt
         self.num_correct_trials = num_correct_trials
         self.measure_performance = measure_performance
         self.num_perf_trials = num_perf_trials
@@ -463,7 +454,6 @@ class KernelBenchRLDataset(RLDataset):
                 renderer=self.renderer,
                 group_size=self.group_size,
                 reward_config=self.reward_config,
-                system_prompt=self.system_prompt,
                 num_correct_trials=self.num_correct_trials,
                 measure_performance=self.measure_performance,
                 num_perf_trials=self.num_perf_trials,
