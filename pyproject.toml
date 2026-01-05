@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "kernelbench-tinker"
 version = "0.1.0"
-description = "KernelBench ↔ Tinker integration for RL kernel training"
+description = "KernelBench - Tinker integration for RL kernel training"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 license = {text = "MIT"}
@@ -72,6 +72,9 @@ run-and-check-kb = "kernelbench_tinker.scripts.run_and_check:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["kernelbench_tinker*"]
+
+[tool.setuptools.package-data]
+kernelbench_tinker = ["py.typed"]
 
 [tool.black]
 line-length = 100
