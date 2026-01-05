@@ -506,17 +506,7 @@ class KernelBenchProblem:
     prompt_include_hardware: bool = False
     prompt_gpu_name: str | None = None
 
-    _ref_code: str | None = field(default=None, repr=False)
     _prompt: str | None = field(default=None, repr=False)
-
-    @property
-    def ref_code(self) -> str:
-        """Get the reference PyTorch code (cached)."""
-        if self._ref_code is None:
-            self._ref_code = get_reference_code(
-                self.level, self.problem_id, self.dataset_src
-            )
-        return self._ref_code
 
     @property
     def prompt(self) -> str:
