@@ -7,3 +7,6 @@ runs/
 dist/
 .mypy_cache/
 .pytest_cache/
+
+# git submodules of the KernelBench repo
+KernelBench/ 

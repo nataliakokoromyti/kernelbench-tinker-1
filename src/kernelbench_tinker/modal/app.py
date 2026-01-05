@@ -36,9 +36,6 @@ KERNELBENCH_GIT_SPEC = os.environ.get(
     "kernelbench @ git+https://github.com/ScalingIntelligence/KernelBench.git@06e49e8781b13acdb68b102b3c9c864bd9454db3",
 )
 
-# Optional local override for KernelBench source (useful for dev)
-KERNELBENCH_ROOT = os.environ.get("KERNELBENCH_ROOT")
-
 # Build the Modal image with CUDA and KernelBench dependencies
 cuda_version = "12.8.0"
 flavor = "devel"  # includes full CUDA toolkit
@@ -70,13 +67,6 @@ image = (
         "packaging",
     )
 )
-
-# Dev-only: overlay local KernelBench source during deploy from this machine.
-# This is not a runtime feature for end users.
-if KERNELBENCH_ROOT:
-    kernelbench_src = os.path.join(KERNELBENCH_ROOT, "src")
-    if os.path.exists(kernelbench_src):
-        image = image.add_local_python_source(kernelbench_src)
 
 # Create Modal App
 app = modal.App("kernel-rl-evaluator")
