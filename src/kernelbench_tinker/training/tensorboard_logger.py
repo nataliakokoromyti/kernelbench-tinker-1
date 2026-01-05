@@ -290,7 +290,7 @@ class TensorBoardLogger:
 
             if level is None:
                 # Default to level 1 if not found (single-level training)
-                continue
+                level = 1
 
             # Initialize level buckets
             if level not in level_rewards:
