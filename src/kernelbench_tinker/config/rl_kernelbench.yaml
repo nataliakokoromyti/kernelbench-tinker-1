@@ -44,7 +44,6 @@ remove_constant_reward_groups: true
 # =============================================================================
 log_path: "./runs/kernelbench_tinker"
 save_every: 1
-eval_every: 10
 
 # Weights & Biases (optional)
 wandb_project: null

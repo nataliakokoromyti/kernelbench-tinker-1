@@ -95,7 +95,6 @@ class TrainingConfig:
     # Logging and checkpointing
     log_path: str = "./runs/kernelbench_tinker"
     save_every: int = 10  # Save checkpoint every N batches
-    eval_every: int = 10  # Evaluate every N batches
 
     # Remove groups where all rewards are the same (no learning signal)
     remove_constant_reward_groups: bool = True
