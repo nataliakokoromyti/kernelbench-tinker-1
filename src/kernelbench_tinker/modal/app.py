@@ -71,7 +71,8 @@ image = (
     )
 )
 
-# Optional: overlay local KernelBench source for development
+# Dev-only: overlay local KernelBench source during deploy from this machine.
+# This is not a runtime feature for end users.
 if KERNELBENCH_ROOT:
     kernelbench_src = os.path.join(KERNELBENCH_ROOT, "src")
     if os.path.exists(kernelbench_src):
