@@ -1141,7 +1141,6 @@ dependencies = [
     { name = "numpy" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
-    { name = "src" },
     { name = "tensorboard" },
     { name = "tinker" },
     { name = "tinker-cookbook" },
@@ -1179,7 +1178,6 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
-    { name = "src", git = "https://github.com/ScalingIntelligence/KernelBench.git?rev=404ee91422cdb78646947faba2cce4c03601bc52" },
     { name = "tensorboard", specifier = ">=2.15.0" },
     { name = "tinker" },
     { name = "tinker-cookbook", git = "https://github.com/thinking-machines-lab/tinker-cookbook.git?rev=989f84926245b227634797b8eac46abe232f9c24" },
@@ -2808,11 +2806,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/6d/e6/21ccce3262dd4889a
 wheels = [
     { url = "https://files.pythonhosted.org/packages/14/a0/bb38d3b76b8cae341dad93a2dd83ab7462e6dbcdd84d43f54ee60a8dc167/soupsieve-2.8-py3-none-any.whl", hash = "sha256:0cc76456a30e20f5d7f2e14a98a4ae2ee4e5abdc7c5ea0aafe795f344bc7984c", size = 36679, upload-time = "2025-08-27T15:39:50.179Z" },
 ]
-
-[[package]]
-name = "src"
-version = "0.0.1"
-source = { git = "https://github.com/ScalingIntelligence/KernelBench.git?rev=404ee91422cdb78646947faba2cce4c03601bc52#404ee91422cdb78646947faba2cce4c03601bc52" }
 
 [[package]]
 name = "sympy"

@@ -26,7 +26,6 @@ classifiers = [
 dependencies = [
     "tinker",
     "tinker-cookbook",
-    "src",  # KernelBench package name (module import is kernelbench.*)
     "torch>=2.0.0",
     "numpy",
     "pyyaml",
@@ -61,8 +60,6 @@ dev = [
 [tool.uv.sources]
 # tinker-cookbook from git (pinned commit)
 tinker-cookbook = { git = "https://github.com/thinking-machines-lab/tinker-cookbook.git", rev = "989f84926245b227634797b8eac46abe232f9c24" }
-# KernelBench from git (package name is "src", pinned commit)
-src = { git = "https://github.com/ScalingIntelligence/KernelBench.git", rev = "404ee91422cdb78646947faba2cce4c03601bc52" }
 
 [project.scripts]
 train-kernel-rl = "kernelbench_tinker.scripts.train_kernel_rl:main"
