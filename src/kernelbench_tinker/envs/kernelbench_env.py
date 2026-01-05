@@ -82,8 +82,7 @@ class KernelBenchEnv(Env):
     2. Action: The model generates a kernel implementation
     3. Step: Evaluate the kernel and compute reward
 
-    The episode ends after one step (single-turn). Future versions may support
-    multi-turn interactions where the model can iterate based on compiler errors.
+    The episode ends after one step.
     """
 
     def __init__(
@@ -123,9 +122,6 @@ class KernelBenchEnv(Env):
         self.excessive_speedup_threshold = excessive_speedup_threshold
         self.modal_timeout = modal_timeout
 
-        # State for multi-turn (future)
-        self._last_result: KernelEvalResult | None = None
-        self._last_kernel: str | None = None
         self._current_prompt_messages: list[renderers.Message] | None = None
         self._current_observation: tinker.ModelInput | None = None
 
@@ -177,8 +173,6 @@ class KernelBenchEnv(Env):
         # Parse structured response (extracts <KERNEL> block)
         parsed = parse_structured_response(response_text)
         kernel_code = parsed.kernel
-        self._last_kernel = kernel_code
-
         # Check format validity
         format_ok = parsed.format_ok
 
@@ -199,7 +193,6 @@ class KernelBenchEnv(Env):
             excessive_speedup_threshold=self.excessive_speedup_threshold,
             timeout=self.modal_timeout,
         )
-        self._last_result = eval_result
         eval_time = time.perf_counter() - eval_start
 
         # Compute reward
@@ -249,7 +242,6 @@ class KernelBenchEnv(Env):
             metrics=metrics,
         )
 
-        # Single-turn: episode ends after first step
         episode_done = True
 
         return StepResult(
@@ -274,7 +266,6 @@ class KernelBenchEnv(Env):
             return
 
         trace_record = {
-            "mode": "single_turn",
             "level": self.problem.level,
             "problem_id": self.problem.problem_id,
             "backend": self.problem.backend,
