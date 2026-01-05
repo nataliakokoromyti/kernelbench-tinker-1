@@ -483,7 +483,7 @@ async def evaluate_kernel_batch_async(
 
     # Prepare evaluations with ref_code
     prepared = []
-    results = []
+    results: list[tuple[int, KernelEvalResult]] = []
 
     for i, e in enumerate(evaluations):
         kernel_code = e["kernel_code"]
@@ -513,7 +513,7 @@ async def evaluate_kernel_batch_async(
             default_result["format_ok"] = True
         else:
             default_result["error_message"] = "Could not extract valid kernel code"
-            results.append((i, default_result, None))
+            results.append((i, default_result))
             continue
 
         # Get reference code
@@ -525,7 +525,7 @@ async def evaluate_kernel_batch_async(
             )
         except Exception as ex:
             default_result["error_message"] = f"Failed to load reference: {ex}"
-            results.append((i, default_result, None))
+            results.append((i, default_result))
             continue
 
         # Add to batch for Modal evaluation
@@ -552,7 +552,7 @@ async def evaluate_kernel_batch_async(
             modal_results = await evaluator.evaluate_batch(prepared)
 
             for prep, modal_result in zip(prepared, modal_results):
-                results.append((prep["index"], modal_result, None))
+                results.append((prep["index"], modal_result))
 
         except Exception as e:
             logger.exception("Modal batch evaluation failed")
@@ -570,7 +570,7 @@ async def evaluate_kernel_batch_async(
                     "code_length": len(prep["kernel_code"]),
                     "metadata": {},
                 }
-                results.append((prep["index"], error_result, None))
+                results.append((prep["index"], error_result))
 
     # Sort by original index and return
     results.sort(key=lambda x: x[0])
