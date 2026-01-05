@@ -416,10 +416,6 @@ class TensorBoardLogger:
             self.writer.add_scalar("Advantage/Max", np.max(all_advantages), step)
             self.writer.add_histogram("Distributions/Advantages", all_advantages, step)
 
-    def log_text(self, tag: str, text: str, step: int) -> None:
-        """Log text content (e.g., sample outputs)."""
-        self.writer.add_text(tag, text, step)
-
     def flush(self) -> None:
         """Flush pending logs to disk."""
         self.writer.flush()
