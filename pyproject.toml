@@ -49,14 +49,6 @@ dev = [
     "mypy",
 ]
 
-[dependency-groups]
-dev = [
-    "pytest",
-    "black",
-    "isort",
-    "mypy",
-]
-
 [tool.uv.sources]
 # tinker-cookbook from git (pinned commit)
 tinker-cookbook = { git = "https://github.com/thinking-machines-lab/tinker-cookbook.git", rev = "989f84926245b227634797b8eac46abe232f9c24" }
