@@ -19,6 +19,7 @@ import logging
 from typing import Any, TypedDict
 
 logger = logging.getLogger(__name__)
+_EVAL_CACHE: OrderedDict[str, "KernelEvalResult"] = OrderedDict()
 
 # Kernel block pattern - code inside <KERNEL>...</KERNEL>
 KERNEL_BLOCK_PATTERN = re.compile(
@@ -327,9 +328,7 @@ async def evaluate_kernel_async(
 
     # Simple LRU cache to avoid re-evaluating identical kernels for the same problem.
     # We cache even failures to avoid repeatedly paying for hopeless kernels.
-    _eval_cache: OrderedDict[str, KernelEvalResult] = getattr(
-        evaluate_kernel_async, "_eval_cache", OrderedDict()
-    )
+    _eval_cache = _EVAL_CACHE
 
     def _make_cache_key(code: str) -> str:
         h = hashlib.sha1(code.encode("utf-8"), usedforsecurity=False).hexdigest()
@@ -449,9 +448,6 @@ async def evaluate_kernel_async(
             _eval_cache[cache_key] = default_copy
             _prune_cache()
         return default_result
-
-# Attach cache container to function for reuse
-evaluate_kernel_async._eval_cache = OrderedDict()  # type: ignore[attr-defined]
 
 
 
