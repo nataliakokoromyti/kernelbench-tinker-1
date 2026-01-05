@@ -333,7 +333,13 @@ async def evaluate_kernel_async(
 
     def _make_cache_key(code: str) -> str:
         h = hashlib.sha1(code.encode("utf-8"), usedforsecurity=False).hexdigest()
-        return f"{level}:{problem_id}:{backend}:{dataset_src}:{h}"
+        return (
+            f"{level}:{problem_id}:{backend}:{dataset_src}:"
+            f"{num_correct_trials}:{measure_performance}:{num_perf_trials}:"
+            f"{precision}:{timing_method}:"
+            f"{check_for_excessive_speedup}:{excessive_speedup_threshold}:"
+            f"{h}"
+        )
 
     def _prune_cache(maxsize: int = 512) -> None:
         while len(_eval_cache) > maxsize:
