@@ -30,11 +30,6 @@ import yaml
 from kernelbench_tinker.env import setup_environment
 from kernelbench_tinker.training.loop import TrainingConfig, main as train_main
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
 logger = logging.getLogger(__name__)
 
 
@@ -60,6 +55,10 @@ def load_yaml_config(path: str) -> dict[str, Any]:
 
 def main():
     """Main entry point."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
     setup_environment()
 
     # Check for --config flag

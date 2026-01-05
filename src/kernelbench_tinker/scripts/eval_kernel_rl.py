@@ -39,11 +39,6 @@ from kernelbench_tinker.envs.kernelbench_client import (
 )
 from kernelbench_tinker.training.models import get_renderer_name_for_model
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
 logger = logging.getLogger(__name__)
 
 
@@ -311,6 +306,10 @@ async def run_evaluation(cfg: EvalConfig) -> dict[str, Any]:
 
 def main():
     """Main entry point."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
     setup_environment()
 
     # Parse CLI arguments
