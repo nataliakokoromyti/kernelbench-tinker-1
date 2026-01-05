@@ -284,7 +284,6 @@ class KernelBenchEnv(Env):
             "backend": self.problem.backend,
             "dataset_src": self.problem.dataset_src,
             "prompt_option": self.problem.prompt_option,
-            "turn": 0,
             "prompt_messages": self._current_prompt_messages,
             "renderer": getattr(self.renderer, "name", type(self.renderer).__name__),
             "response": {
