@@ -16,7 +16,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import threading
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -76,7 +75,6 @@ class ModalKernelEvaluator:
         self._modal_available: bool | None = None
         self._deployed_cls = None
         self._gpu_arch: list[str] | None = None
-        self._lock = threading.Lock()
         self._batcher: ModalBatcher | None = None
 
     def _check_modal_available(self) -> bool:
