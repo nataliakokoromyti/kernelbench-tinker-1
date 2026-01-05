@@ -195,22 +195,3 @@ def print_eval_summary(results: EvalResults) -> None:
     print("=" * 60 + "\n")
 
 
-def compare_results(baseline: EvalResults, improved: EvalResults) -> dict[str, Any]:
-    """Compare two evaluation results."""
-    base_summary = baseline.summary()
-    impr_summary = improved.summary()
-
-    comparison = {}
-    for key in base_summary:
-        if base_summary[key] is not None and impr_summary.get(key) is not None:
-            base_val = base_summary[key]
-            impr_val = impr_summary[key]
-            if isinstance(base_val, (int, float)) and isinstance(impr_val, (int, float)):
-                comparison[key] = {
-                    "baseline": base_val,
-                    "improved": impr_val,
-                    "delta": impr_val - base_val,
-                    "relative": (impr_val / base_val - 1) if base_val != 0 else None,
-                }
-
-    return comparison
