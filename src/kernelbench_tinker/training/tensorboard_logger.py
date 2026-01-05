@@ -116,10 +116,6 @@ class TensorBoardLogger:
         """Log a single scalar value."""
         self.writer.add_scalar(tag, value, step)
 
-    def log_scalars(self, main_tag: str, tag_scalar_dict: dict[str, float], step: int) -> None:
-        """Log multiple scalars under a common group."""
-        self.writer.add_scalars(main_tag, tag_scalar_dict, step)
-
     def log_histogram(self, tag: str, values: np.ndarray | list, step: int) -> None:
         """Log a histogram of values."""
         if len(values) > 0:
