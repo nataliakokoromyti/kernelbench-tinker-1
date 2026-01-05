@@ -283,20 +283,6 @@ class KernelEvaluator:
             }
 
 
-def get_evaluator_with_gpu(gpu_type: str = DEFAULT_GPU, timeout: int = DEFAULT_TIMEOUT):
-    """
-    Get a KernelEvaluator instance configured for a specific GPU.
-
-    Args:
-        gpu_type: GPU type (A100, H100, L40S, etc.)
-        timeout: Timeout in seconds per evaluation
-
-    Returns:
-        Configured KernelEvaluator class with GPU options
-    """
-    return KernelEvaluator.with_options(gpu=gpu_type, timeout=timeout)
-
-
 def get_gpu_arch(gpu_type: str) -> list[str]:
     """Get GPU architecture list for a given GPU type."""
     return GPU_ARCH_MAPPING.get(gpu_type, ["Ampere"])
