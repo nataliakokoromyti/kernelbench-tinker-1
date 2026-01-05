@@ -82,6 +82,7 @@ class EvalConfig:
 
     # Output
     output_path: str = "./eval_results.json"
+    max_kernel_code_chars: int | None = 500  # Set to None to store full code
 
     # TensorBoard logging (optional, to log eval metrics alongside training)
     tensorboard_log_dir: str | None = None  # If provided, log eval metrics to TensorBoard
@@ -173,9 +174,16 @@ async def evaluate_problem(
             timeout=cfg.modal_timeout,
         )
 
+        if cfg.max_kernel_code_chars is None:
+            kernel_code_logged = kernel_code
+        elif len(kernel_code) > cfg.max_kernel_code_chars:
+            kernel_code_logged = kernel_code[: cfg.max_kernel_code_chars] + "..."
+        else:
+            kernel_code_logged = kernel_code
+
         samples.append({
             "sample_id": sample_idx,
-            "kernel_code": kernel_code[:500] + "..." if len(kernel_code) > 500 else kernel_code,
+            "kernel_code": kernel_code_logged,
             **eval_result,
         })
 
