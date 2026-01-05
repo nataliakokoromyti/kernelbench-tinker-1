@@ -155,21 +155,6 @@ class EvalResults:
             json.dump(self.to_dict(), f, indent=2, default=str)
         logger.info(f"Saved evaluation results to {path}")
 
-    @classmethod
-    def load(cls, path: str) -> "EvalResults":
-        """Load results from JSON file."""
-        with open(path) as f:
-            data = json.load(f)
-
-        results = cls(metadata=data.get("metadata", {}))
-        for prob_data in data.get("problems", []):
-            results.add_problem(ProblemResult(
-                level=prob_data["level"],
-                problem_id=prob_data["problem_id"],
-                samples=prob_data.get("samples", []),
-            ))
-        return results
-
 
 def print_eval_summary(results: EvalResults) -> None:
     """Print a formatted evaluation summary."""
