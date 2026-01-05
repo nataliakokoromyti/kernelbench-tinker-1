@@ -127,7 +127,6 @@ class KernelBenchEnv(Env):
         self.modal_timeout = modal_timeout
 
         # State for multi-turn (future)
-        self._turn = 0
         self._last_result: KernelEvalResult | None = None
         self._last_kernel: str | None = None
         self._current_prompt_messages: list[renderers.Message] | None = None
@@ -175,8 +174,6 @@ class KernelBenchEnv(Env):
             StepResult with reward and episode done status
         """
         step_start = time.perf_counter()
-        self._turn += 1
-
         # Parse the response to get text
         message, _ = self.renderer.parse_response(action)
         response_text = message.get("content", "")
@@ -287,7 +284,7 @@ class KernelBenchEnv(Env):
             "backend": self.problem.backend,
             "dataset_src": self.problem.dataset_src,
             "prompt_option": self.problem.prompt_option,
-            "turn": self._turn - 1,  # step just completed
+            "turn": 0,
             "prompt_messages": self._current_prompt_messages,
             "renderer": getattr(self.renderer, "name", type(self.renderer).__name__),
             "response": {
