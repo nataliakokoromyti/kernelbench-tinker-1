@@ -112,6 +112,62 @@ await train_step(data, training_client, ...)
 - `compute_reward()`: Total reward calculation
 - Formula: `reward = 0.3 × correct + speedup` (when correct)
 
+## Modal Batcher Design
+
+The `ModalBatcher` exists to bridge two different execution patterns:
+
+### The Problem
+
+```
+Tinker RL Interface:          Modal Efficiency:
+─────────────────────         ──────────────────
+Each Env.step() is            starmap() is more efficient
+independent and async         with batched calls
+      │                              │
+      ▼                              ▼
+128 separate calls            1 call with 128 items
+(high RPC overhead)           (low RPC overhead)
+```
+
+### How the Batcher Works
+
+```
+Time ─────────────────────────────────────────▶
+
+env.step() ──┐
+env.step() ──┼──► Batcher collects for 150ms ──► starmap([all evals])
+env.step() ──┤                                        │
+   ...       │                                        ▼
+env.step() ──┘                                  Modal containers
+                                                run in parallel
+```
+
+1. Each `Env.step()` calls `evaluate_single_batched()` independently
+2. `ModalBatcher` collects requests for a short window (150ms)
+3. When window expires OR batch is full (32), flush to Modal
+4. One `starmap()` call dispatches all collected evals
+5. Results are distributed back to waiting callers
+
+### Trade-offs
+
+| Benefit | Cost |
+|---------|------|
+| Fewer RPC calls | 150ms latency waiting for batch |
+| Less connection overhead | ~50 lines of async complexity |
+
+### Alternative (Not Implemented)
+
+Could remove the batcher and batch at training loop level:
+```python
+# Collect all kernels first
+all_kernels = collect_kernels_from_rollouts(rollouts)
+# One Modal call
+all_results = await modal_evaluator.evaluate_batch(all_kernels)
+# Distribute results
+assign_results_to_envs(rollouts, all_results)
+```
+This would be simpler but requires changing the Tinker Env interface.
+
 ## Data Flow
 
 ```mermaid

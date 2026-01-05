@@ -18,7 +18,7 @@
 # =============================================================================
 model_name: "Qwen/Qwen3-30B-A3B"
 lora_rank: 64
-learning_rate: 0.000002
+learning_rate: 2e-6
 
 # =============================================================================
 # Generation Configuration
@@ -42,7 +42,7 @@ remove_constant_reward_groups: true
 # =============================================================================
 # Logging and Checkpointing
 # =============================================================================
-log_path: "./runs/kernelbench_tinker"
+log_path: "./runs/default"
 save_every: 1
 
 # Weights & Biases (optional)
@@ -50,23 +50,44 @@ wandb_project: null
 wandb_name: null
 
 # =============================================================================
-# Dataset Configuration
+# Dataset Builder Configuration
 # =============================================================================
 dataset_builder:
-    # Problem selection
-    level: 1
-    start_problem: null
-    end_problem: null
-    backend: "triton"
-    dataset_src: "huggingface"
+    # ---------------------------------------------------------------------------
+    # Problem Selection
+    # ---------------------------------------------------------------------------
+    level: 1                      # KernelBench level (1, 2, 3, or 4)
+    start_problem: null           # First problem ID (null = start from 1)
+    end_problem: null             # Last problem ID (null = all problems)
+    dataset_src: "huggingface"    # "huggingface" or "local"
 
-    # Training configuration
-    batch_size: 8
-    group_size: 16
+    # ---------------------------------------------------------------------------
+    # Kernel Backend (what language the LLM generates)
+    # Options: "triton", "cuda", "cute", "tilelang"
+    # ---------------------------------------------------------------------------
+    backend: "triton"
+
+    # ---------------------------------------------------------------------------
+    # Batching
+    # ---------------------------------------------------------------------------
+    batch_size: 8                 # Problems per batch
+    group_size: 16                # Rollouts per problem (for GRPO)
     num_epochs: 22
     shuffle: true
+    test_fraction: 0.1            # Fraction of problems for test set
 
-    # Evaluation configuration
+    # ---------------------------------------------------------------------------
+    # Prompt Configuration
+    # ---------------------------------------------------------------------------
+    renderer_name: "qwen3"        # Should match model family
+    prompt_option: "one_shot"     # "zero_shot", "one_shot", "few_shot"
+    prompt_precision: null
+    prompt_include_hardware: false
+    prompt_gpu_name: null
+
+    # ---------------------------------------------------------------------------
+    # Evaluation (runs on Modal GPU containers)
+    # ---------------------------------------------------------------------------
     num_correct_trials: 5
     measure_performance: true
     num_perf_trials: 100
@@ -74,29 +95,15 @@ dataset_builder:
     precision: "fp32"
     check_for_excessive_speedup: true
     excessive_speedup_threshold: 10.0
+    modal_gpu_type: "A100"
+    modal_timeout: 60.0
 
-    # Reward configuration
+    # ---------------------------------------------------------------------------
+    # Reward Weights
+    # Formula: reward = correctness_weight * correct + speed_weight * speedup
+    # ---------------------------------------------------------------------------
     reward_format_weight: 0.0
     reward_compile_weight: 0.0
     reward_correctness_weight: 0.3
     reward_speed_weight: 1.0
     reward_length_weight: 0.0
-
-    # Test split
-    test_fraction: 0.1
-
-    # Renderer (should match model)
-    renderer_name: "qwen3"
-
-    # Prompt configuration
-    prompt_option: "one_shot"
-    prompt_precision: null
-    prompt_include_hardware: false
-    prompt_gpu_name: null
-
-    # =============================================================================
-    # Modal Configuration (Isolated GPU Evaluation)
-    # Run each kernel in an isolated Modal container with hard timeout
-    # =============================================================================
-    modal_gpu_type: "A100"
-    modal_timeout: 60.0
