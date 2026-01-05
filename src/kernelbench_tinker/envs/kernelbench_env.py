@@ -500,11 +500,11 @@ class KernelBenchDatasetBuilder(RLDatasetBuilder):
     excessive_speedup_threshold: float = 10.0
 
     # Reward configuration
-    reward_format_weight: float = 0.1
-    reward_compile_weight: float = 0.2
-    reward_correctness_weight: float = 1.0
-    reward_speed_weight: float = 0.0
-    reward_length_weight: float = 0.05  # Tie-breaking for uniform rewards
+    reward_format_weight: float = 0.0
+    reward_compile_weight: float = 0.0
+    reward_correctness_weight: float = 0.3
+    reward_speed_weight: float = 1.0
+    reward_length_weight: float = 0.0
 
     # Renderer
     renderer_name: str = "qwen3"
