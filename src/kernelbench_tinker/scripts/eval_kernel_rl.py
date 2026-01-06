@@ -25,7 +25,7 @@ import chz
 import tinker
 from tqdm import tqdm
 
-from tinker_cookbook import renderers
+from tinker_cookbook import renderers, tokenizer_utils
 from tinker_cookbook.completers import TinkerTokenCompleter
 
 from kernelbench_tinker.env import setup_environment
@@ -243,7 +243,8 @@ async def run_evaluation(cfg: EvalConfig) -> dict[str, Any]:
 
     # Get renderer
     renderer_name = get_renderer_name_for_model(cfg.model_name)
-    renderer = renderers.get_renderer(renderer_name)
+    tokenizer = tokenizer_utils.get_tokenizer(cfg.model_name)
+    renderer = renderers.get_renderer(renderer_name, tokenizer)
 
     # Get problems
     problem_ids = get_problem_ids(
