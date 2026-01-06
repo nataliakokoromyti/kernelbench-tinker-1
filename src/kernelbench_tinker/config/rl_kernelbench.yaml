@@ -107,3 +107,28 @@ dataset_builder:
     reward_correctness_weight: 0.3
     reward_speed_weight: 1.0
     reward_length_weight: 0.0
+
+    # ---------------------------------------------------------------------------
+    # Reward Hacking Detection (Static Checker)
+    # ---------------------------------------------------------------------------
+    # Enable static checking for reward hacking patterns
+    reward_enable_static_checker: true
+    
+    # Backend for static checking (must match backend above)
+    reward_static_checker_backend: "triton"  # "cuda", "triton", "thunderkittens", "cute", "tilelang"
+    
+    # Precision for static checking (must match precision above)
+    reward_static_checker_precision: "fp32"  # "fp32", "fp16", "bf16"
+    
+    # Strict checks (errors) - these will zero the reward if detected
+    # Set to null to use all default strict checks
+    # Available checks: "code_bypass", "timing_event_patch", "thread_injection", 
+    #                  "lazy_eval", "cuda_impl", "triton_impl", "tk_impl", 
+    #                  "cute_impl", "tilelang_impl", "pytorch_wrap"
+    reward_static_checker_strict: null  # null = use defaults (all strict checks)
+    
+    # Warning checks - these will log warnings but NOT zero the reward
+    # Set to null to use all default warning checks
+    # Available checks: "pytorch_wrap", "torch_computation_ops", "stream_injection",
+    #                  "precision_downgrade"
+    reward_static_checker_warnings: null  # null = use defaults (all warning checks)

@@ -181,8 +181,13 @@ class KernelBenchEnv(Env):
         )
         eval_time = time.perf_counter() - eval_start
 
-        # Compute reward
-        reward = compute_reward(eval_result, self.reward_config)
+        # Compute reward (pass kernel_code for static checking)
+        reward = compute_reward(
+            eval_result,
+            self.reward_config,
+            kernel_code=kernel_code,
+            backend=self.problem.backend,
+        )
 
         # Log the attempt
         logtree.log_text(f"Problem: Level {self.problem.level}, ID {self.problem.problem_id}")
@@ -447,6 +452,13 @@ class KernelBenchDatasetBuilder(RLDatasetBuilder):
     reward_speed_weight: float = 1.0
     reward_length_weight: float = 0.0
 
+    # Reward hacking detection (static checker)
+    reward_enable_static_checker: bool = True
+    reward_static_checker_backend: str = "triton"
+    reward_static_checker_precision: str = "fp32"
+    reward_static_checker_strict: list[str] | None = None
+    reward_static_checker_warnings: list[str] | None = None
+
     # Renderer
     renderer_name: str = "qwen3"
 
@@ -527,6 +539,11 @@ class KernelBenchDatasetBuilder(RLDatasetBuilder):
             correctness_weight=self.reward_correctness_weight,
             speed_weight=self.reward_speed_weight,
             length_weight=self.reward_length_weight,
+            enable_static_checker=self.reward_enable_static_checker,
+            static_checker_backend=self.reward_static_checker_backend or self.backend,
+            static_checker_precision=self.reward_static_checker_precision or self.precision,
+            static_checker_strict=self.reward_static_checker_strict,
+            static_checker_warnings=self.reward_static_checker_warnings,
         )
 
         # Configure Modal evaluator with the same config
