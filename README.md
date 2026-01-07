@@ -12,7 +12,7 @@ those results into RL rewards.
   - Runs evaluations through Modal for isolated executions
   - Computes rewards directly from KernelBench evaluation results
 
-KernelBench prompts are loaded from a local KernelBench checkout. You must set `KERNELBENCH_ROOT`.
+KernelBench is included as a **git submodule** and installed as a Python package from the local submodule path.
 
 ## Quick Start
 ```bash
@@ -34,37 +34,40 @@ just resume run=my_experiment
 ```
 /workspace/kernel_dev/
    kernelbench-tinker/   # This integration repo
-   KernelBench/          # KernelBench benchmark
-   tinker-cookbook/      # Tinker cookbook examples
+      KernelBench/       # KernelBench as git submodule
+   tinker-cookbook/      # Tinker cookbook examples (optional)
 ```
 
 ## Setup
 
-### 1. Clone repository
+### 1. Clone repository with KernelBench submodule
 ```bash
 cd /workspace/kernel_dev
-git clone https://github.com/nataliakokoromyti/kernelbench-tinker.git
+git clone --recurse-submodules https://github.com/nataliakokoromyti/kernelbench-tinker.git
 ```
 
-### 2. Clone KernelBench
+This automatically clones KernelBench as a git submodule. If you already cloned without `--recurse-submodules`, run:
 ```bash
-git clone https://github.com/ScalingIntelligence/KernelBench.git
+cd kernelbench-tinker
+git submodule update --init
 ```
 
-### 3. Install uv (if not already installed)
+### 2. Install uv (if not already installed)
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-### 4. Install dependencies
+### 3. Install dependencies
+
+This will install KernelBench from the local `./KernelBench` submodule (managed by git):
 
 ```bash
 cd /workspace/kernel_dev/kernelbench-tinker
 uv sync
 ```
 
-### 5. Configure environment variables
+### 4. Configure environment variables
 
 Copy the example environment file and add your API key:
 
@@ -76,7 +79,6 @@ Edit `.env` and set your Tinker API key (get it from https://console.tinker.thin
 
 ```bash
 TINKER_API_KEY=your-api-key-here
-KERNELBENCH_ROOT=/workspace/kernel_dev/KernelBench
 MODAL_TOKEN_ID=your-modal-token-id
 MODAL_TOKEN_SECRET=your-modal-token-secret
 ```
@@ -175,7 +177,6 @@ uv run python -m kernelbench_tinker.scripts.eval_kernel_rl \
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `TINKER_API_KEY` | Yes | API key from https://console.tinker.thinkingmachines.ai |
-| `KERNELBENCH_ROOT` | Yes | Path to local KernelBench checkout (must include `src/prompts`) |
 | `MODAL_TOKEN_ID` | Yes | Modal token ID |
 | `MODAL_TOKEN_SECRET` | Yes | Modal token secret |
 

@@ -43,18 +43,10 @@ def setup_environment() -> None:
 
     This function:
     1. Loads variables from .env file (if present)
-    2. Requires KERNELBENCH_ROOT to be set
-    3. Warns if TINKER_API_KEY is not set
+    2. Warns if TINKER_API_KEY is not set
     """
     # Load .env file first
     load_env()
-
-    # Require explicit KERNELBENCH_ROOT
-    if "KERNELBENCH_ROOT" not in os.environ:
-        raise RuntimeError(
-            "KERNELBENCH_ROOT is not set. Please set it to your local KernelBench "
-            "checkout (e.g., KERNELBENCH_ROOT=/path/to/KernelBench)."
-        )
 
     # Check that TINKER_API_KEY is set
     if "TINKER_API_KEY" not in os.environ:

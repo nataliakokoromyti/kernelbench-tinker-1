@@ -7,7 +7,7 @@ name = "kernelbench-tinker"
 version = "0.1.0"
 description = "KernelBench - Tinker integration for RL kernel training"
 readme = "README.md"
-requires-python = ">=3.11,<3.14"
+requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [
     {name = "KernelBench Tinker Team"}
@@ -26,7 +26,7 @@ classifiers = [
 dependencies = [
     "tinker",
     "tinker-cookbook",
-    "torch>=2.0.0",
+    "torch>=2.9.0",
     "numpy",
     "pyyaml",
     "datasets",
@@ -38,7 +38,11 @@ dependencies = [
     # Visualization
     "tensorboard>=2.15.0",
     # Modal Labs for isolated GPU evaluation
+    # NOTE: Kernel execution uses Python/torch versions defined in modal/app.py,
+    # not the versions here. This repo controls training; Modal image controls eval.
     "modal>=0.64.0",
+    # KernelBench from local git submodule (managed by git, not uv)
+    "kernelbench @ file:///${PROJECT_ROOT}/../KernelBench",
 ]
 
 [project.optional-dependencies]
@@ -67,7 +71,7 @@ kernelbench_tinker = ["py.typed"]
 
 [tool.black]
 line-length = 100
-target-version = ["py311", "py312"]
+target-version = ["py311"]
 
 [tool.isort]
 profile = "black"
