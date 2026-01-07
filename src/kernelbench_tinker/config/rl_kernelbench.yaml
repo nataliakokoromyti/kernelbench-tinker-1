@@ -18,7 +18,7 @@
 # =============================================================================
 model_name: "Qwen/Qwen3-30B-A3B"
 lora_rank: 64
-learning_rate: 2e-6
+learning_rate: 0.000002  # 2e-6 as explicit float
 
 # =============================================================================
 # Generation Configuration
@@ -46,8 +46,8 @@ log_path: "./runs/default"
 save_every: 1
 
 # Weights & Biases (optional)
-wandb_project: null
-wandb_name: null
+wandb_project: kernelbench-tinker
+wandb_name: kb-tinker-rl
 
 # =============================================================================
 # Dataset Builder Configuration

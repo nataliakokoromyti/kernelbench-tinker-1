@@ -42,7 +42,7 @@ dependencies = [
     # not the versions here. This repo controls training; Modal image controls eval.
     "modal>=0.64.0",
     # KernelBench from local git submodule (managed by git, not uv)
-    "kernelbench @ file:///${PROJECT_ROOT}/KernelBench",
+    "kernelbench @ file:///${PROJECT_ROOT}/../KernelBench",
 ]
 
 [project.optional-dependencies]
