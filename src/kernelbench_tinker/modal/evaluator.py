@@ -86,18 +86,8 @@ class ModalKernelEvaluator:
             import modal  # noqa: F401
 
             # Check if we're in a context where Modal can run
-            # Modal requires authentication tokens
-            token_id = os.environ.get(self.config.modal_token_env)
-            token_secret = os.environ.get("MODAL_TOKEN_SECRET")
-
-            if not token_id or not token_secret:
-                logger.warning(
-                    f"Modal tokens not found in environment. "
-                    f"Set {self.config.modal_token_env} and MODAL_TOKEN_SECRET"
-                )
-                self._modal_available = False
-            else:
-                self._modal_available = True
+            # Authentication is handled by Modal SDK (via env vars or local ~/.modal.toml)
+            self._modal_available = True
         except ImportError:
             logger.error("Modal not installed. Run: pip install modal")
             self._modal_available = False
