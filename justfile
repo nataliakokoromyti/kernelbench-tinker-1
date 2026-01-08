@@ -38,3 +38,13 @@ logs run:
 status:
     @echo "=== Running Training Jobs ==="
     @pgrep -fa "train_kernel_rl" | grep -v grep || echo "No training jobs running"
+
+# === Control ===
+
+stop run:
+    @echo "Stopping training: {{run}}"
+    @pkill -f "log_path={{runs_dir}}/{{run}}" && echo "Training stopped" || echo "No matching process found"
+
+stop-all:
+    @echo "Stopping all training jobs..."
+    @pkill -f "train_kernel_rl" && echo "All training jobs stopped" || echo "No training jobs running"
