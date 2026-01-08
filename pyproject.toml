@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kernelbench-tinker"
-version = "0.1.0"
+version = "0.2.0"
 description = "KernelBench - Tinker integration for RL kernel training"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -35,14 +35,14 @@ dependencies = [
     "python-dotenv",
     "litellm",
     "tomli",
+    "wandb",
     # Visualization
     "tensorboard>=2.15.0",
     # Modal Labs for isolated GPU evaluation
     # NOTE: Kernel execution uses Python/torch versions defined in modal/app.py,
     # not the versions here. This repo controls training; Modal image controls eval.
     "modal>=0.64.0",
-    # KernelBench from local git submodule (managed by git, not uv)
-    "kernelbench @ file:///${PROJECT_ROOT}/../KernelBench",
+    "kernelbench",
 ]
 
 [project.optional-dependencies]
@@ -55,7 +55,9 @@ dev = [
 
 [tool.uv.sources]
 # tinker-cookbook from git (pinned commit)
+# can update to latest commit
 tinker-cookbook = { git = "https://github.com/thinking-machines-lab/tinker-cookbook.git", rev = "989f84926245b227634797b8eac46abe232f9c24" }
+kernelbench = { path = "./KernelBench", editable = true }
 
 [project.scripts]
 train-kernel-rl = "kernelbench_tinker.scripts.train_kernel_rl:main"
