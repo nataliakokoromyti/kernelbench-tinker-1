@@ -229,7 +229,7 @@ uv run python -m kernelbench_tinker.scripts.eval_kernel_rl \
     level=1 \
     output_path=./baseline_results.json
 ```
-You can also use the KernelBench Eval scripts as well (also run on Modal).
+You can use the KernelBench Eval scripts as well (also run on Modal).
 
 <details>
 <summary><b>Troubleshooting</b></summary>
