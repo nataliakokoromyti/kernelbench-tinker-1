@@ -1,24 +1,24 @@
 # KernelBench - Tinker Integration
 
-This repo shows an end-to-end integration that enable RL Training with [Tinker](https://tinker-docs.thinkingmachines.ai/) on [KernelBench](https://github.com/ScalingIntelligence/KernelBench)-style problems. Concretely, our pipeline enable the policy mdoel to generate kernels, evaluate them on Modal (Cloud GPU), and turn those results into RL rewards. The goal is to provide researcher a playground to experiment with RL methods on GPU kernel generation and optimization.
+This repo shows an end-to-end integration that allows RL training with [Tinker](https://tinker-docs.thinkingmachines.ai/) on [KernelBench](https://github.com/ScalingIntelligence/KernelBench)-style problems. Concretely, our pipeline enables the policy model to generate kernels, evaluate them on Modal (Cloud GPU), and turn those results into RL rewards. The goal is to provide researchers with a playground to experiment with RL methods on GPU kernel generation and optimization.
 
-**Disclaimer**: This is a minimal integration. We will continue to add common features and make it more user-friendly. However, please verify your own results and adapt to your own need. 
+**Disclaimer**: This is a minimal integration. We will continue to add common features and make it more user-friendly. However, please verify your results and adapt the implementation to your own needs. 
 
 By [@nataliakokoromyti](https://github.com/nataliakokoromyti), [@simonguozirui](https://github.com/simonguozirui), [@ethanboneh](https://github.com/ethanboneh).
 
 ## Overview
 
-This repo is a minimal **Tinker - KernelBench integration** to enable reinforcement fine-tune language models, aiming to improve model performance on GPU kernel generation and optimization. 
+This repo is a minimal **Tinker - KernelBench integration** to enable RL fine-tuning of language models, aiming to improve model performance on GPU kernel generation and optimization. 
 
-We combine the best of these frameworks to showcase a RL training pipeline:
-  - **KernelBench**: [KernelBench](https://github.com/ScalingIntelligence/KernelBench) is an benchmark suite and evalaution framework that examines models' ability to generate and optimize GPU kernels (in CUDA and other kernel frameworks). We leverage its datasets, evaluation code, and checkers.  
-  - **Tinker**: [Tinker](https://tinker-docs.thinkingmachines.ai/) by Thinking Machine Labs is a distributed LoRA fine-tuning framework that enables efficient post-training of large language models. We leverage Tinker's framework to author our RL training pipeline while it handles the distributed compute logic.
-  - **Modal**: [Modal](https://modal.com/) is a cloud computing platform that provides isolated serverles GPU environments for running evaluations. We leverage Modal to scale out Kernel evlauation (which GPU) during rollouts and as consistent and reliable execution environments.
+We combine the best of these frameworks to showcase an RL training pipeline:
+  - **KernelBench**: [KernelBench](https://github.com/ScalingIntelligence/KernelBench) is a benchmark suite and evaluation framework that examines models' ability to generate and optimize GPU kernels (in CUDA and other kernel frameworks). We leverage its datasets, evaluation code, and checkers.  
+  - **Tinker**: [Tinker](https://tinker-docs.thinkingmachines.ai/) by Thinking Machines Lab is a distributed LoRA fine-tuning framework that enables efficient post-training of large language models. We leverage Tinker's framework to author our RL training pipeline while it handles the distributed compute logic.
+  - **Modal**: [Modal](https://modal.com/) is a cloud computing platform that provides isolated serverless GPU environments for running evaluations. We leverage Modal to scale kernel evaluations (which require GPUs) during rollouts and as consistent and reliable execution environments.
 
 TODO: Simon Put architecture diagram here
 
 ### `KernelBenchEnv` RL Env
-We implement a `KernelBenchEnv`  standard RL environment (inheriting from Tinker's `Env` base class) that follows a single-turn interaction pattern. `KernelBenchEnv` serves as the bridge between Tinker's RL training loop and the KernelBench evaluation ecosystem. 
+We implement a `KernelBenchEnv` standard RL environment (inheriting from Tinker's `Env` base class) that follows a single-turn interaction pattern. `KernelBenchEnv` serves as the bridge between Tinker's RL training loop and the KernelBench evaluation ecosystem. 
 
 1.  **Observation**: The environment fetches a problem from KernelBench (e.g., a PyTorch model and its reference implementation) and formats it into a prompt (with KernelBench's task format, like `backend`, `precision`, different context information) using Tinker's `Renderer`.
 2.  **Action**: The model generates a candidate GPU kernel implementation based on the prompt.
@@ -42,7 +42,7 @@ kernelbench-tinker/      # This integration repo
 ```
 
 KernelBench is included as a **git submodule** and installed as a Python package from the local submodule path.
-We use the latest `tinker` and `tinker_cookbook` functions to training logic.
+We use the latest `tinker` and `tinker_cookbook` functions for the training logic.
 
 
 <details>
@@ -99,15 +99,15 @@ We use uv to resolve dependencies of the RL loop and inner KernelBench repo. You
 # In the repository root
 uv sync
 ```
-This will install KernelBench from the local `./KernelBench` submodule (managed by git):
+This will install KernelBench from the local `./KernelBench` submodule (managed by git). 
 
-Note within the Modal image (for kernel evaluation ), we have a predefined set of package dependencies to allow kernel execution. 
+Note that within the Modal image (for kernel evaluation), we have a predefined set of package dependencies to allow kernel execution. 
 
 ### 4. Configure environment variables
 
 Copy the example environment file, `cp .env.example .env`, and edit it to set your Tinker API key from [Tinker Console](https://console.tinker.thinkingmachines.ai). The `.env` file is automatically loaded when running scripts.
 
-To use Modal GPUs for rollout, please register a modal account and set up modal through the modal cli `uv run modal setup`.
+To use Modal GPUs for rollout, please create a Modal account and set it up using the Modal CLI `uv run modal setup`.
 
 
 ## Launching Training Run
@@ -118,7 +118,7 @@ You must first deploy the `modal` app for isolated GPU eval (which will scale up
 uv run modal deploy src/kernelbench_tinker/modal/app.py
 ```
 
-You can kick the RL training loop via: 
+You can start the RL training loop via: 
 ```
 uv run python -m kernelbench_tinker.scripts.train_kernel_rl \
     --config src/kernelbench_tinker/config/rl_kernelbench.yaml \
@@ -154,10 +154,6 @@ uv run python -m kernelbench_tinker.scripts.train_kernel_rl \
     load_checkpoint_path=./runs/my_experiment
 ```
 
-**Note**: Kernel evaluation can sometimes crash the GPU with illegal memory access errors. The frequent checkpointing ensures minimal progress loss.
-<!-- note shouldn't we handle this in the modal logic? as long as main loop doesn't crash we should be fine? -->
-
-
 ## Tracking & Tips
 
 <details>
@@ -192,16 +188,16 @@ Run tracking will automatically start if a project name is provided.
 </details>
 
 ### Training Dynamics
-**Sparse Reward**: As kernel generation is challenging, the reward could be sparse (no success in a group), as we require a successful kernel to be generated and correct to receive a reward. 
+**Sparse Reward**: As we require a successful kernel to be both generated and correct to receive a reward, the reward could be sparse (no success in a group).
 You might see
 ```
 tinker_cookbook.rl.data_processing:206 [WARNING] All rewards are uniform. There will be no gradient
 ```
-This could happen early during training. However, it is also worth switching to larger model with *a stronger prior*, which Tinker handles the scaling easily. 
+This could happen early during training. However, it is also worth switching to a larger model supported by Tinker that has *a stronger prior*.
 
-**Reward Hacking**: As we optimize against objective, kernels might reward hack. This has been documented in work such as [Kevin](https://arxiv.org/abs/2507.11948) and [TritonRL](https://arxiv.org/abs/2510.17891). We integrated KernelBench's ongoing reward hack checker for detection, but feel free to implement your own reward hack detection logic (and contribute back!) See a list of common reward hacks in [KernelBench Eval Guide](https://github.com/ScalingIntelligence/KernelBench/blob/main/EVAL.md) and blogpost resource like [this one](https://deep-reinforce.com/defense_kernel_hack.html).
+**Reward Hacking**: As we optimize against the objective, kernels might reward hack. This has been documented in work such as [Kevin](https://arxiv.org/abs/2507.11948) and [TritonRL](https://arxiv.org/abs/2510.17891). We integrated KernelBench's ongoing reward hack checker for detection, but feel free to implement your own reward hack detection logic (and contribute back!) See a list of common reward hacks in [KernelBench Eval Guide](https://github.com/ScalingIntelligence/KernelBench/blob/main/EVAL.md) and blog post resources like [this one](https://deep-reinforce.com/defense_kernel_hack.html).
 
-You might see messages and warning like this:
+You might encounter the following messages or warnings:
 ```
 kernelbench_tinker.training.reward:344 [WARNING] Static checker warning: Uses torch.nn.functional op: torch.nn.functional.conv_transpose2d
 kernelbench_tinker.training.reward:351 [ERROR] Reward hacking detected (reward set to 0): Contains 'pass' statement (inheritance bypass)
@@ -210,7 +206,7 @@ kernelbench_tinker.training.reward:344 [WARNING] Static checker warning: Uses to
 
 In general, it is extremely **important** to examine the trajectories and generated kernels carefully rather than solely looking at the reward or metrics.
 
-**Long step time**: Rollout could be expensive for this RL loop, and you might have concurrency on how much parallel GPU contianers you can spin up at a time on Modal (and GPU availability). This dominates the training step time. 
+**Long step time**: Rollouts can be expensive for this RL loop, and you may face concurrency limits on the number of parallel GPU containers you can spin up at a time on Modal (subject to GPU availability). This dominates the training step time.
 
 
 ## Evaluation
@@ -233,7 +229,7 @@ uv run python -m kernelbench_tinker.scripts.eval_kernel_rl \
     level=1 \
     output_path=./baseline_results.json
 ```
-You can also use the KernelBench Eval scripts as well (which is also done on modal)
+You can also use the KernelBench Eval scripts as well (also run on Modal).
 
 <details>
 <summary><b>Troubleshooting</b></summary>
@@ -282,7 +278,7 @@ If empty or missing, training crashed before the first checkpoint was saved.
 </details>
 
 ## Future Directions
-Note the scope of this repo is an open-source implementation of KernelBench-Tinker integration, not necessariy showcasing novel RL techniques. 
+Note the scope of this repo is an open-source implementation of KernelBench-Tinker integration, not necessarily showcasing novel RL techniques. 
 
 * More reward examples leveraging more fine-grained metrics
 * More reward hack checking
