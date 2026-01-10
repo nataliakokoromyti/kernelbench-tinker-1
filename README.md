@@ -15,10 +15,10 @@ We combine the best of these frameworks to showcase an RL training pipeline:
   - **Tinker**: [Tinker](https://tinker-docs.thinkingmachines.ai/) by Thinking Machines Lab is a distributed LoRA fine-tuning framework that enables efficient post-training of large language models. We leverage Tinker's framework to author our RL training pipeline while it handles the distributed compute logic.
   - **Modal**: [Modal](https://modal.com/) is a cloud computing platform that provides isolated serverless GPU environments for running evaluations. We leverage Modal to scale kernel evaluations (which require GPUs) during rollouts and as consistent and reliable execution environments.
 
-TODO: Simon Put architecture diagram here
+![RL System Architecture Diagram](docs/rl-system.png)
 
 ### `KernelBenchEnv` RL Env
-We implement a `KernelBenchEnv` standard RL environment (inheriting from Tinker's `Env` base class) that follows a single-turn interaction pattern. `KernelBenchEnv` serves as the bridge between Tinker's RL training loop and the KernelBench evaluation ecosystem. 
+We implement `KernelBenchEnv`, a standard RL environment (inheriting from Tinker's `Env` base class) that follows a single-turn interaction pattern. `KernelBenchEnv` serves as the bridge between Tinker's RL training loop and the KernelBench evaluation ecosystem. 
 
 1.  **Observation**: The environment fetches a problem from KernelBench (e.g., a PyTorch model and its reference implementation) and formats it into a prompt (with KernelBench's task format, like `backend`, `precision`, different context information) using Tinker's `Renderer`.
 2.  **Action**: The model generates a candidate GPU kernel implementation based on the prompt.
@@ -42,7 +42,7 @@ kernelbench-tinker/      # This integration repo
 ```
 
 KernelBench is included as a **git submodule** and installed as a Python package from the local submodule path.
-We use the latest `tinker` and `tinker_cookbook` functions for the training logic.
+We use the latest `tinker` and `tinker-cookbook` functions for the training logic.
 
 
 <details>
@@ -141,7 +141,7 @@ just status run=my_experiment
 
 ### Checkpoints and Resume
 
-Checkpoints are saved to Tinker cloud after every batch. The checkpoint paths are recorded in `{log_path}/checkpoints.jsonl`.
+Checkpoints are saved to Tinker Cloud after every batch. The checkpoint paths are recorded in `{log_path}/checkpoints.jsonl`.
 
 ```bash
 # Resume training after a crash
@@ -294,4 +294,4 @@ Note the scope of this repo is an open-source implementation of KernelBench-Tink
 - [Tinker Cookbook](https://github.com/thinking-machines-lab/tinker-cookbook)
 
 
-We thank the Thinking Machines Lab for the [Tinker Research Grant](https://thinkingmachines.ai/research-grant) and Modal labs for their support for this project. 
+We thank the Thinking Machines Lab for the [Tinker Research Grant](https://thinkingmachines.ai/blog/tinker-research-and-teaching-grants/) and Modal Labs for their support for this project.
