@@ -72,8 +72,8 @@ def build_eval_feedback(eval_result: KernelEvalResult) -> str:
 
     speedup = eval_result.get("speedup")
     if speedup is not None:
-        return f"Your previous answer was correct. Speedup: {speedup:.2f}x"
-    return "Your previous answer was correct."
+        return f"Your previous answer was correct but can be made faster. Speedup: {speedup:.2f}x"
+    return "Your previous answer was correct but can be made faster."
 
 
 # ---------------------------------------------------------------------------
