@@ -58,7 +58,7 @@ class RewardConfig:
     # Speed reward configuration
     # Linear speedup: reward = T_baseline / T_kernel
     # ==========================================================================
-    speed_baseline: float = 1.0  # Speedup threshold (1.0 = same as baseline)
+    speed_baseline: float = 0.0  # Subtracted from speedup (0.0 = raw speedup as reward)
     speed_scale: float = 1.0  # Linear scaling (not log)
     speed_max_reward: float = 10.0  # Cap to prevent outliers
 
@@ -189,13 +189,12 @@ def speed_reward(
     if speedup is None or speedup <= 0:
         return 0.0
 
-    # Linear speedup, not log-scaled
-    # If speedup <= baseline (1.0), no speed bonus
+    # No reward if speedup is at or below baseline threshold
     if speedup <= config.speed_baseline:
         return 0.0
 
-    # Linear reward: speedup - 1.0 (so 2x speedup = 1.0 reward, 3x = 2.0, etc.)
-    # This matches the default formula where reward = speedup for correct kernels
+    # Linear reward: raw speedup with baseline subtracted
+    # Default (speed_baseline=0.0): 2x speedup → reward 2.0
     reward = config.speed_scale * (speedup - config.speed_baseline)
 
     # Clamp to max to prevent outliers
