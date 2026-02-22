@@ -590,7 +590,7 @@ async def run_training_loop(
     if is_multiturn:
         logger.info("Running in MULTI-TURN mode")
         logger.info(f"  n (refinement turns per trajectory): {cfg.multiturn.n}")
-        logger.info(f"  m (parallel trajectories): {cfg.multiturn.m}")
+        logger.info(f"  group_size (parallel trajectories, m): {cfg.dataset_builder.group_size}")
         logger.info(f"  gamma (discount factor): {cfg.multiturn.gamma}")
 
     # Setup logging
@@ -680,7 +680,6 @@ async def run_training_loop(
                  for f in _dc.fields(cfg.dataset_builder)}
         _base.update(
             max_turns=cfg.multiturn.n,
-            group_size=cfg.multiturn.m,
             early_stop_on_correct=cfg.multiturn.early_stop_on_correct,
             speedup_threshold=cfg.multiturn.speedup_threshold,
         )

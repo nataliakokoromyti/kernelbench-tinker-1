@@ -32,7 +32,6 @@ temperature: 1.0
 multiturn:
     enabled: false                     # true to enable iterative refinement
     n: 4                               # Refinement turns per trajectory
-    m: 16                              # Parallel trajectories per problem
     gamma: 0.4                         # Discount factor for multi-turn returns
     aggregation: "sum"                 # "sum" (reward many good kernels) or "max" (reward one great kernel)
     early_stop_on_correct: false       # Stop episode when kernel passes all tests
@@ -83,7 +82,7 @@ dataset_builder:
     # Batching
     # ---------------------------------------------------------------------------
     batch_size: 8                 # Problems per batch
-    group_size: 16                # Rollouts per problem (for GRPO)
+    group_size: 16                # Rollouts per problem (GRPO group size, "m" in multi-turn)
     num_epochs: 22
     shuffle: true
     test_fraction: 0.1            # Fraction of problems for test set

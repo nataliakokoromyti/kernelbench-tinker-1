@@ -113,7 +113,7 @@ def main():
     logger.info(f"Log path: {cfg.log_path}")
     if cfg.multiturn.enabled:
         logger.info(f"Refinement turns per trajectory (n): {cfg.multiturn.n}")
-        logger.info(f"Parallel trajectories (m): {cfg.multiturn.m}")
+        logger.info(f"Parallel trajectories (group_size): {cfg.dataset_builder.group_size}")
         logger.info(f"Discount factor (gamma): {cfg.multiturn.gamma}")
 
     # Run training

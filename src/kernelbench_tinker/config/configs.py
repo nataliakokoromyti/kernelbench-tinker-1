@@ -73,9 +73,6 @@ class MultiTurnConfig:
     # Refinement turns per trajectory
     n: int = 4
 
-    # Parallel trajectories per problem
-    m: int = 16
-
     # Discount factor for multi-turn returns: R_t = S_t + gamma * R_{t+1}
     gamma: float = 0.4
 
