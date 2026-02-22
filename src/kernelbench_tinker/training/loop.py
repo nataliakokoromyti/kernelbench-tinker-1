@@ -674,16 +674,13 @@ async def run_training_loop(
 
     # Create dataset (pass tokenizer for renderer)
     if is_multiturn:
-        # Copy base dataset_builder with multi-turn overrides from MultiTurnConfig
-        import dataclasses as _dc
-        _base = {f.name: getattr(cfg.dataset_builder, f.name)
-                 for f in _dc.fields(cfg.dataset_builder)}
-        _base.update(
+        # Override multi-turn fields from MultiTurnConfig onto the dataset builder
+        dataset_builder = chz.replace(
+            cfg.dataset_builder,
             max_turns=cfg.multiturn.n,
             early_stop_on_correct=cfg.multiturn.early_stop_on_correct,
             speedup_threshold=cfg.multiturn.speedup_threshold,
         )
-        dataset_builder = KernelBenchDatasetBuilder(**_base)
         logger.info("Using KernelBenchDatasetBuilder (multi-turn, max_turns=%d)", cfg.multiturn.n)
     else:
         dataset_builder = cfg.dataset_builder
