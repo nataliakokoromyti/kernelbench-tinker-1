@@ -61,7 +61,12 @@ def build_eval_feedback(eval_result: KernelEvalResult) -> str:
         return f"Your previous answer failed to compile. Error: {error_msg}"
 
     if not eval_result["correctness"]:
+        tests_passed = eval_result.get("tests_passed", 0)
+        if tests_passed > 0:
+            # Some tests passed — kernel runs but produces wrong output
+            return f"Your previous answer was incorrect. Passed {tests_passed}/{eval_result.get('tests_total', 0)} tests."
         if error_msg:
+            # Zero tests passed with an error — runtime crash
             return f"Your previous answer had a runtime error. Error: {error_msg}"
         return "Your previous answer was incorrect."
 
