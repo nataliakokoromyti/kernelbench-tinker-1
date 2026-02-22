@@ -154,23 +154,36 @@ class TensorBoardLogger:
             self.writer.add_scalars("Reward/Summary", reward_metrics, step)
 
         # === Kernel Quality Metrics ===
-        if "kernel/format_rate" in metrics:
-            self.writer.add_scalar("Kernel/FormatRate", metrics["kernel/format_rate"], step)
-        if "kernel/compile_rate" in metrics:
-            self.writer.add_scalar("Kernel/CompileRate", metrics["kernel/compile_rate"], step)
-        if "kernel/correct_rate" in metrics:
-            self.writer.add_scalar("Kernel/CorrectRate", metrics["kernel/correct_rate"], step)
+        # Single-turn emits kernel/{format,compile,correct}_rate
+        # Multi-turn emits multiturn/{format,compile,correct}_rate
+        # Both map to the same Kernel/ TensorBoard dashboard
+        for name in ("format", "compile", "correct"):
+            for key in (f"kernel/{name}_rate", f"multiturn/{name}_rate"):
+                if key in metrics:
+                    self.writer.add_scalar(f"Kernel/{name.capitalize()}Rate", metrics[key], step)
+                    break
         if "kernel/cheat_rate" in metrics:
             self.writer.add_scalar("Kernel/CheatRate", metrics["kernel/cheat_rate"], step)
 
         # Combined kernel quality chart
         quality_metrics = {}
-        for key in ["kernel/format_rate", "kernel/compile_rate", "kernel/correct_rate"]:
-            if key in metrics:
-                short_key = key.replace("kernel/", "").replace("_rate", "")
-                quality_metrics[short_key] = metrics[key]
+        for name in ("format", "compile", "correct"):
+            for key in (f"kernel/{name}_rate", f"multiturn/{name}_rate"):
+                if key in metrics:
+                    quality_metrics[name] = metrics[key]
+                    break
         if quality_metrics:
             self.writer.add_scalars("Kernel/QualityRates", quality_metrics, step)
+
+        # === Multi-turn Specific Metrics ===
+        if "multiturn/raw_score_mean" in metrics:
+            self.writer.add_scalar("MultiTurn/RawScoreMean", metrics["multiturn/raw_score_mean"], step)
+        if "multiturn/success_rate" in metrics:
+            self.writer.add_scalar("MultiTurn/SuccessRate", metrics["multiturn/success_rate"], step)
+        if "multiturn/avg_turns" in metrics:
+            self.writer.add_scalar("MultiTurn/AvgTurns", metrics["multiturn/avg_turns"], step)
+        if "multiturn/best_speedup_mean" in metrics:
+            self.writer.add_scalar("MultiTurn/BestSpeedupMean", metrics["multiturn/best_speedup_mean"], step)
 
         # === Progress Metrics ===
         if "progress/done_frac" in metrics:
@@ -195,10 +208,6 @@ class TensorBoardLogger:
 
             if timing_metrics:
                 self.writer.add_scalars("Timing/Breakdown", timing_metrics, step)
-
-        # Log any speedup metrics if available
-        if "kernel/mean_speedup" in metrics:
-            self.writer.add_scalar("Kernel/MeanSpeedup", metrics["kernel/mean_speedup"], step)
 
     def log_trajectory_histograms(
         self,
