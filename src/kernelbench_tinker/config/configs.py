@@ -67,6 +67,9 @@ class MultiTurnConfig:
     evaluation feedback and can fix errors across multiple turns.
     """
 
+    # Enable multi-turn mode (False = single-turn)
+    enabled: bool = False
+
     # Refinement turns per trajectory
     n: int = 4
 

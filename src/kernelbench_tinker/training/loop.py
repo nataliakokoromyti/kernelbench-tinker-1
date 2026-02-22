@@ -88,9 +88,6 @@ class TrainingConfig:
         default_factory=KernelBenchDatasetBuilder
     )
 
-    # Training mode: "single_turn" or "multi_turn"
-    mode: str = "single_turn"
-
     # Multi-turn specific config
     multiturn: MultiTurnConfig = chz.field(default_factory=MultiTurnConfig)
 
@@ -582,7 +579,7 @@ async def run_training_loop(
     Args:
         cfg: Training configuration
     """
-    is_multiturn = cfg.mode == "multi_turn"
+    is_multiturn = cfg.multiturn.enabled
     if is_multiturn:
         logger.info("Running in MULTI-TURN mode")
         logger.info(f"  n (refinement turns per trajectory): {cfg.multiturn.n}")
@@ -609,7 +606,7 @@ async def run_training_loop(
         tb_logger.log_training_config(cfg)
 
     logger.info("Starting KernelBench RL training")
-    logger.info(f"Mode: {cfg.mode}")
+    logger.info(f"Multi-turn: {'enabled' if is_multiturn else 'disabled'}")
     logger.info(f"Model: {cfg.model_name}")
     logger.info(f"Log path: {cfg.log_path}")
     if tb_logger:

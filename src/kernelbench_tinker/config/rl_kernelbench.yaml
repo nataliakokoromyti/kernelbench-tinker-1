@@ -27,17 +27,16 @@ max_tokens: 16384
 temperature: 1.0
 
 # =============================================================================
-# Training Mode
+# Multi-turn Configuration
 # =============================================================================
-# "single_turn" (default) or "multi_turn"
-mode: "single_turn"
-
-# Multi-turn settings (only used when mode: "multi_turn")
 multiturn:
-    n: 4                             # Refinement turns per trajectory
-    m: 16                            # Parallel trajectories per problem
-    gamma: 0.4                       # Discount factor for multi-turn returns
-    aggregation: "sum"               # "sum" (reward many good kernels) or "max" (reward one great kernel)
+    enabled: false                     # true to enable iterative refinement
+    n: 4                               # Refinement turns per trajectory
+    m: 16                              # Parallel trajectories per problem
+    gamma: 0.4                         # Discount factor for multi-turn returns
+    aggregation: "sum"                 # "sum" (reward many good kernels) or "max" (reward one great kernel)
+    early_stop_on_correct: false       # Stop episode when kernel passes all tests
+    speedup_threshold: null            # Required speedup before early stopping (null = any correct)
 
 # =============================================================================
 # Training Configuration
