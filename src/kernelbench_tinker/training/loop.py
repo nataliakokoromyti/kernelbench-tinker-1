@@ -304,7 +304,14 @@ def compute_multiturn_trajectory_metrics(
     trajectory_groups: list[TrajectoryGroup],
     env_groups: list[Sequence[Env]],
 ) -> dict[str, Any]:
-    """Compute aggregate metrics for multi-turn trajectories."""
+    """Compute aggregate metrics for multi-turn trajectories.
+
+    Metric semantics:
+    - reward/discounted_*: per-trajectory discounted returns (R_t), computed
+      after apply_discounted_returns_to_trajectories replaces step rewards.
+    - multiturn/raw_score_mean: raw per-step scores (S_t) from env.step(),
+      stored in trans.metrics["step_score"] before discounting.
+    """
     metrics: dict[str, Any] = {}
 
     turn_compiled: dict[int, list[float]] = {}
@@ -363,10 +370,10 @@ def compute_multiturn_trajectory_metrics(
                 all_num_turns.append(env.state.turn_idx)
 
     if all_rewards:
-        metrics["reward/mean"] = float(np.mean(all_rewards))
-        metrics["reward/std"] = float(np.std(all_rewards))
-        metrics["reward/min"] = float(np.min(all_rewards))
-        metrics["reward/max"] = float(np.max(all_rewards))
+        metrics["reward/discounted_mean"] = float(np.mean(all_rewards))
+        metrics["reward/discounted_std"] = float(np.std(all_rewards))
+        metrics["reward/discounted_min"] = float(np.min(all_rewards))
+        metrics["reward/discounted_max"] = float(np.max(all_rewards))
 
     if all_format_ok:
         metrics["multiturn/format_rate"] = float(np.mean(all_format_ok))
@@ -375,7 +382,7 @@ def compute_multiturn_trajectory_metrics(
     if all_correct:
         metrics["multiturn/correct_rate"] = float(np.mean(all_correct))
     if all_step_scores:
-        metrics["multiturn/step_score_mean"] = float(np.mean(all_step_scores))
+        metrics["multiturn/raw_score_mean"] = float(np.mean(all_step_scores))
     if all_success:
         metrics["multiturn/success_rate"] = float(np.mean(all_success))
     if all_num_turns:
@@ -843,7 +850,7 @@ async def run_training_loop(
         if is_multiturn:
             logger.info(
                 f"Batch {batch_idx}/{num_batches}: "
-                f"step_score={metrics.get('multiturn/step_score_mean', 0):.3f}, "
+                f"raw_score={metrics.get('multiturn/raw_score_mean', 0):.3f}, "
                 f"compile={metrics.get('multiturn/compile_rate', 0):.1%}, "
                 f"correct={metrics.get('multiturn/correct_rate', 0):.1%}, "
                 f"success={metrics.get('multiturn/success_rate', 0):.1%}, "
