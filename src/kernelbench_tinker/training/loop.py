@@ -233,6 +233,7 @@ def apply_discounted_returns_to_trajectories(
     trajectory_groups: list[TrajectoryGroup],
     env_groups: list[Sequence[Env]],
     gamma: float = 0.4,
+    aggregation: str = "sum",
 ) -> None:
     """Replace per-step rewards with discounted returns for multi-turn training."""
     for tg, envs in zip(trajectory_groups, env_groups):
@@ -245,7 +246,7 @@ def apply_discounted_returns_to_trajectories(
             if not step_scores:
                 continue
 
-            returns = compute_discounted_returns(step_scores, gamma)
+            returns = compute_discounted_returns(step_scores, gamma, aggregation)
             for i, trans in enumerate(traj.transitions):
                 if i < len(returns):
                     trans.reward = returns[i]
@@ -783,7 +784,9 @@ async def run_training_loop(
 
             with timed("discount_returns", metrics):
                 apply_discounted_returns_to_trajectories(
-                    trajectory_groups, env_groups, gamma=cfg.multiturn.gamma
+                    trajectory_groups, env_groups,
+                    gamma=cfg.multiturn.gamma,
+                    aggregation=cfg.multiturn.aggregation,
                 )
 
             traj_metrics = compute_multiturn_trajectory_metrics(

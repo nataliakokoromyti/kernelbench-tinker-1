@@ -451,27 +451,55 @@ def compute_reward_breakdown(
 def compute_discounted_returns(
     step_scores: list[float],
     gamma: float = 0.4,
+    aggregation: str = "sum",
 ) -> list[float]:
     """
     Compute discounted returns for multi-turn RL.
 
-    R_t = s_t + gamma * R_{t+1}
+    Two aggregation modes:
+        sum: R_t = Σ_{i=t}^{T-1} γ^(i-t) × S_i
+             Backward recursion: R_t = S_t + γ * R_{t+1}
+             Rewards turns that lead to many good future kernels.
+        max: R_t = max_{i=t}^{T-1} { γ^(i-t) × S_i }
+             Each turn's return is the single best discounted future score.
+             Rewards turns that lead to at least one great kernel.
 
     Args:
         step_scores: Per-step reward scores in episode order.
         gamma: Discount factor. Lower values make each turn more
             independent; higher values propagate future rewards further.
+        aggregation: "sum" (default) or "max".
 
     Returns:
         List of discounted returns, same length as step_scores.
+
+    Raises:
+        ValueError: If aggregation is not "sum" or "max".
     """
+    if aggregation not in ("sum", "max"):
+        raise ValueError(f"Unknown aggregation mode: {aggregation!r}. Must be 'sum' or 'max'.")
+
     if not step_scores:
         return []
 
-    returns = [0.0] * len(step_scores)
-    returns[-1] = step_scores[-1]
+    T = len(step_scores)
 
-    for t in range(len(step_scores) - 2, -1, -1):
-        returns[t] = step_scores[t] + gamma * returns[t + 1]
+    if aggregation == "sum":
+        returns = [0.0] * T
+        returns[-1] = step_scores[-1]
+        for t in range(T - 2, -1, -1):
+            returns[t] = step_scores[t] + gamma * returns[t + 1]
+        return returns
 
+    # aggregation == "max"
+    returns = [0.0] * T
+    for t in range(T):
+        best = step_scores[t]  # γ^0 × S_t
+        discount = 1.0
+        for i in range(t, T):
+            discount = gamma ** (i - t)
+            candidate = discount * step_scores[i]
+            if candidate > best:
+                best = candidate
+        returns[t] = best
     return returns

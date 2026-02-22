@@ -76,6 +76,11 @@ class MultiTurnConfig:
     # Discount factor for multi-turn returns: R_t = S_t + gamma * R_{t+1}
     gamma: float = 0.4
 
+    # Return aggregation mode: "sum" or "max"
+    #   sum: R_t = Σ γ^(i-t) × S_i  (reward turns leading to many good kernels)
+    #   max: R_t = max{ γ^(i-t) × S_i } (reward turns leading to one great kernel)
+    aggregation: str = "sum"
+
     # Stop the episode early when the kernel is correct
     early_stop_on_correct: bool = True
 
