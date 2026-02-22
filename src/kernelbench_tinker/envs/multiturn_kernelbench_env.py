@@ -424,6 +424,15 @@ class MultiTurnKernelBenchEnv(Env):
                 backend=self.problem.backend,
             ),
             "metrics": metrics,
+            "history": [
+                {
+                    "kernel": entry["kernel"],
+                    "summary": entry["cot_summary"],
+                    "feedback": entry["feedback"],
+                    "score": entry["score"],
+                }
+                for entry in self.state.history
+            ],
             "state": {
                 "turn_idx": self.state.turn_idx,
                 "done": self.state.done,
