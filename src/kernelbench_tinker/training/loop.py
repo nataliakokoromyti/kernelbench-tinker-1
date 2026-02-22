@@ -267,7 +267,9 @@ def flatten_multiturn_trajectory_groups(
         new_trajectories = []
         for traj in tg.trajectories_G:
             for trans in traj.transitions:
-                new_trajectories.append(Trajectory(transitions=[trans]))
+                new_trajectories.append(
+                    Trajectory(transitions=[trans], final_ob=tinker.ModelInput.empty())
+                )
 
         new_group = TrajectoryGroup(
             new_trajectories,
