@@ -9,7 +9,6 @@ feedback and can fix errors or improve performance.
 from __future__ import annotations
 
 import logging
-import re
 import time
 from dataclasses import dataclass, field
 from typing import Sequence
@@ -49,95 +48,27 @@ logger = logging.getLogger(__name__)
 MAX_KERNEL_HISTORY_LEN = 2000
 MAX_HISTORY_CONTEXT_LEN = 8000
 MAX_ERROR_LEN = 800
-MAX_ERROR_LINES = 10
 
 
-# ---------------------------------------------------------------------------
-# Error extraction and categorization helpers
-# ---------------------------------------------------------------------------
-
-
-def _extract_key_error(error_message: str | None) -> str:
-    """Extract a cleaned summary of the main error with relevant context."""
-    if not error_message:
-        return ""
-
-    patterns = [
-        r"(\w+Error: .+?)(?:\n\n|\n(?=[A-Z])|$)",
-        r"(\w+Exception: .+?)(?:\n\n|\n(?=[A-Z])|$)",
-        r"(triton\.compiler\.errors\.\w+: .+?)(?:\n|$)",
-        r"(triton\.runtime\.errors\.\w+: .+?)(?:\n|$)",
-        r"(nvcc.+?error.+?)(?:\n|$)",
-        r"(CUDA error: .+?)(?:\n|$)",
-        r"(RuntimeError: .+?)(?:\n|$)",
-        r"(TypeError: .+?)(?:\n|$)",
-        r"(ValueError: .+?)(?:\n|$)",
-        r"(Correctness check failed.+?)(?:\n|$)",
-        r"(Output mismatch.+?)(?:\n|$)",
-        r"(CompilationError: .+?)(?:\n|$)",
-    ]
-
-    for pattern in patterns:
-        match = re.search(pattern, error_message, re.IGNORECASE | re.DOTALL)
-        if match:
-            error_text = match.group(1).strip()
-            error_text = re.sub(r"\n\s*\n", "\n", error_text)
-            return error_text[:MAX_ERROR_LEN]
-
-    # Fallback: collect meaningful lines
-    meaningful_lines = []
-    for line in error_message.split("\n"):
-        line = line.strip()
-        if not line or line.startswith("Traceback") or line.startswith('File "'):
-            continue
-        meaningful_lines.append(line)
-        if len(meaningful_lines) >= MAX_ERROR_LINES:
-            break
-
-    if meaningful_lines:
-        return "\n".join(meaningful_lines)[:MAX_ERROR_LEN]
-
-    return error_message[:MAX_ERROR_LEN]
-
-
-def _categorize_error(eval_result: KernelEvalResult) -> str:
-    """Categorize the evaluation result for feedback."""
+def build_eval_feedback(eval_result: KernelEvalResult) -> str:
+    """Build a one-line feedback string from an evaluation result."""
     if not eval_result["format_ok"]:
-        return "format_error"
+        return "Your previous answer failed to be parsed."
+
+    error_msg = (eval_result.get("error_message") or "")[:MAX_ERROR_LEN]
+
     if not eval_result["compiled"]:
-        return "compilation_error"
+        return f"Your previous answer failed to compile. Error: {error_msg}"
+
     if not eval_result["correctness"]:
-        error_msg = eval_result.get("error_message", "") or ""
-        if "Error" in error_msg or "Exception" in error_msg:
-            return "runtime_error"
-        return "correctness_error"
-    if eval_result.get("speedup") is not None and eval_result["speedup"] < 1.0:
-        return "performance_warning"
-    return "success"
+        if error_msg:
+            return f"Your previous answer had a runtime error. Error: {error_msg}"
+        return "Your previous answer was incorrect."
 
-
-_ERROR_GUIDANCE = {
-    "format_error": (
-        "Ensure your output is a valid Python class named `ModelNew` "
-        "wrapped in a code block."
-    ),
-    "compilation_error": (
-        "Fix the syntax/API errors. Check that all kernel functions "
-        "are correctly decorated and all imports are valid."
-    ),
-    "runtime_error": (
-        "Fix the runtime error. Common issues: shape mismatches, "
-        "incorrect tensor indexing, or invalid kernel launch configurations."
-    ),
-    "correctness_error": (
-        "The kernel runs but produces incorrect output. Check your algorithm "
-        "implementation, boundary conditions, and reduction operations."
-    ),
-    "performance_warning": (
-        "The kernel is correct but slower than PyTorch. Consider optimizing "
-        "memory access patterns, tiling, or parallelization strategy."
-    ),
-}
+    speedup = eval_result.get("speedup")
+    if speedup is not None:
+        return f"Your previous answer was correct. Speedup: {speedup:.2f}x"
+    return "Your previous answer was correct."
 
 
 # ---------------------------------------------------------------------------
@@ -248,38 +179,6 @@ class MultiTurnKernelBenchEnv(Env):
         messages.append({"role": "system", "content": self._system_prompt})
         messages.append({"role": "user", "content": self.problem.prompt})
         return messages
-
-    def _format_turn_feedback(self, eval_result: KernelEvalResult) -> str:
-        """Format evaluation result into a feedback string for history."""
-        error_category = _categorize_error(eval_result)
-        display_names = {
-            "format_error": "FORMAT ERROR",
-            "compilation_error": "COMPILATION ERROR",
-            "runtime_error": "RUNTIME ERROR",
-            "correctness_error": "CORRECTNESS ERROR",
-            "performance_warning": "CORRECT (slower than baseline)",
-            "success": "SUCCESS",
-        }
-
-        parts = [
-            f"- **Status**: {display_names.get(error_category, error_category.upper())}",
-            f"- **Compiled**: {'Yes' if eval_result['compiled'] else 'No'}",
-            f"- **Tests Passed**: {eval_result['tests_passed']}/{eval_result['tests_total']}",
-        ]
-
-        if eval_result.get("speedup") is not None:
-            parts.append(f"- **Speedup**: {eval_result['speedup']:.2f}x")
-
-        if eval_result.get("error_message") and error_category != "success":
-            error_text = _extract_key_error(eval_result["error_message"])
-            if error_text:
-                parts.append(f"\n```\n{error_text}\n```")
-
-        guidance = _ERROR_GUIDANCE.get(error_category)
-        if guidance:
-            parts.append(f"\n**Hint**: {guidance}")
-
-        return "\n".join(parts)
 
     def _build_refinement_messages(self) -> list[renderers.Message]:
         """Build a fresh prompt with the original problem + history of attempts.
@@ -395,7 +294,7 @@ class MultiTurnKernelBenchEnv(Env):
         state.step_scores.append(step_score)
 
         # Build feedback and store in history
-        feedback = self._format_turn_feedback(eval_result)
+        feedback = build_eval_feedback(eval_result)
         state.history.append({
             "kernel": kernel_code,
             "cot_summary": parsed.cot_summary,
