@@ -105,11 +105,15 @@ def main():
     cfg = blueprint.make()
 
     logger.info("Starting KernelBench RL Training")
+    logger.info(f"Mode: {cfg.mode}")
     logger.info(f"Model: {cfg.model_name}")
     logger.info(f"Level: {cfg.dataset_builder.level}")
     logger.info(f"Batch size: {cfg.dataset_builder.batch_size}")
     logger.info(f"Group size: {cfg.dataset_builder.group_size}")
     logger.info(f"Log path: {cfg.log_path}")
+    if cfg.mode == "multi_turn":
+        logger.info(f"Max turns: {cfg.max_turns}")
+        logger.info(f"Gamma (discount): {cfg.gamma}")
 
     # Run training
     asyncio.run(train_main(cfg))

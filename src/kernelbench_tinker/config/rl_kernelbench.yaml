@@ -27,6 +27,16 @@ max_tokens: 16384
 temperature: 1.0
 
 # =============================================================================
+# Training Mode
+# =============================================================================
+# "single_turn" (default) or "multi_turn"
+mode: "single_turn"
+
+# Multi-turn settings (only used when mode: "multi_turn")
+gamma: 0.4                       # Discount factor for multi-turn returns
+max_turns: 4                     # Maximum refinement turns per episode
+
+# =============================================================================
 # Training Configuration
 # =============================================================================
 num_substeps: 2

@@ -446,3 +446,32 @@ def compute_reward_breakdown(
         "static_checker_errors": static_checker_errors,
         "static_checker_warnings": static_checker_warnings,
     }
+
+
+def compute_discounted_returns(
+    step_scores: list[float],
+    gamma: float = 0.4,
+) -> list[float]:
+    """
+    Compute discounted returns for multi-turn RL.
+
+    R_t = s_t + gamma * R_{t+1}
+
+    Args:
+        step_scores: Per-step reward scores in episode order.
+        gamma: Discount factor. Lower values make each turn more
+            independent; higher values propagate future rewards further.
+
+    Returns:
+        List of discounted returns, same length as step_scores.
+    """
+    if not step_scores:
+        return []
+
+    returns = [0.0] * len(step_scores)
+    returns[-1] = step_scores[-1]
+
+    for t in range(len(step_scores) - 2, -1, -1):
+        returns[t] = step_scores[t] + gamma * returns[t + 1]
+
+    return returns

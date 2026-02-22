@@ -18,7 +18,7 @@ import logging
 import os
 from pathlib import Path
 import time
-from typing import Any
+from typing import Any, Sequence
 
 import chz
 import numpy as np
@@ -33,8 +33,9 @@ from tinker_cookbook.rl.data_processing import (
     compute_advantages,
     remove_constant_reward_groups,
 )
-from tinker_cookbook.rl.rollouts import do_group_rollout
+from tinker_cookbook.rl.rollouts import do_group_rollout, do_single_rollout
 from tinker_cookbook.rl.types import (
+    Env,
     EnvGroupBuilder,
     TrajectoryGroup,
 )
@@ -42,7 +43,12 @@ from tinker_cookbook.utils import ml_log
 from tinker_cookbook.utils.misc_utils import timed
 
 from kernelbench_tinker.envs.kernelbench_env import KernelBenchDatasetBuilder
+from kernelbench_tinker.envs.multiturn_kernelbench_env import (
+    MultiTurnKernelBenchDatasetBuilder,
+    MultiTurnKernelBenchEnv,
+)
 from kernelbench_tinker.training.models import get_adam_params
+from kernelbench_tinker.training.reward import compute_discounted_returns
 from kernelbench_tinker.training.tensorboard_logger import (
     TensorBoardConfig,
     TensorBoardLogger,
@@ -82,6 +88,16 @@ class TrainingConfig:
     dataset_builder: KernelBenchDatasetBuilder = chz.field(
         default_factory=KernelBenchDatasetBuilder
     )
+
+    # Multi-turn dataset configuration (optional, used when mode="multi_turn")
+    multiturn_dataset_builder: MultiTurnKernelBenchDatasetBuilder | None = None
+
+    # Training mode: "single_turn" or "multi_turn"
+    mode: str = "single_turn"
+
+    # Multi-turn specific config
+    gamma: float = 0.4  # Discount factor for multi-turn returns
+    max_turns: int = 4  # Maximum refinement turns per episode
 
     # Training configuration
     num_substeps: int = 1  # Optimizer steps per batch
@@ -153,6 +169,191 @@ async def do_group_rollout_and_filter(
 
     return trajectory_group
 
+
+async def do_group_rollout_with_envs(
+    sampling_client: tinker.SamplingClient,
+    env_group_builder: EnvGroupBuilder,
+    max_tokens: int,
+    temperature: float,
+    do_remove_constant_reward_groups: bool,
+) -> tuple[TrajectoryGroup | None, Sequence[Env] | None]:
+    """
+    Perform rollouts and return both trajectory group and env references.
+
+    For multi-turn mode, we need the env objects to read per-step scores
+    for discounted return computation.
+    """
+    policy = TinkerTokenCompleter(
+        sampling_client,
+        max_tokens=max_tokens,
+        temperature=temperature,
+    )
+
+    envs = await env_group_builder.make_envs()
+    rollout_results = await asyncio.gather(
+        *[do_single_rollout(policy, env) for env in envs],
+        return_exceptions=True,
+    )
+
+    trajectories = []
+    valid_envs: list[Env] = []
+    for traj, env in zip(rollout_results, envs):
+        if isinstance(traj, Exception):
+            logger.warning(f"Rollout failed: {traj}")
+        else:
+            trajectories.append(traj)
+            valid_envs.append(env)
+
+    if not trajectories:
+        logger.warning("All rollouts in group failed")
+        return None, None
+
+    rewards_and_metrics = await env_group_builder.compute_group_rewards(
+        trajectories, valid_envs
+    )
+    rewards_G, metrics_G = zip(*rewards_and_metrics, strict=True)
+
+    trajectory_group = TrajectoryGroup(
+        trajectories,
+        list(rewards_G),
+        list(metrics_G),
+    )
+
+    if do_remove_constant_reward_groups:
+        trajectory_groups = remove_constant_reward_groups([trajectory_group])
+        if len(trajectory_groups) == 0:
+            return None, None
+        trajectory_group = trajectory_groups[0]
+
+    return trajectory_group, valid_envs
+
+
+def apply_discounted_returns_to_trajectories(
+    trajectory_groups: list[TrajectoryGroup],
+    env_groups: list[Sequence[Env]],
+    gamma: float = 0.4,
+) -> None:
+    """Replace per-step rewards with discounted returns for multi-turn training."""
+    for tg, envs in zip(trajectory_groups, env_groups):
+        for traj, env in zip(tg.trajectories_G, envs):
+            if isinstance(env, MultiTurnKernelBenchEnv):
+                step_scores = env.get_step_scores()
+            else:
+                step_scores = [t.reward for t in traj.transitions]
+
+            if not step_scores:
+                continue
+
+            returns = compute_discounted_returns(step_scores, gamma)
+            for i, trans in enumerate(traj.transitions):
+                if i < len(returns):
+                    trans.reward = returns[i]
+
+
+def compute_multiturn_trajectory_metrics(
+    trajectory_groups: list[TrajectoryGroup],
+    env_groups: list[Sequence[Env]],
+) -> dict[str, Any]:
+    """Compute aggregate metrics for multi-turn trajectories."""
+    metrics: dict[str, Any] = {}
+
+    turn_compiled: dict[int, list[float]] = {}
+    turn_correct: dict[int, list[float]] = {}
+
+    all_rewards = []
+    all_num_turns = []
+    all_success = []
+    all_best_speedup = []
+
+    all_format_ok = []
+    all_compiled = []
+    all_correct = []
+    all_step_scores = []
+    all_eval_times = []
+    all_step_times = []
+
+    for tg, envs in zip(trajectory_groups, env_groups):
+        rewards = tg.get_total_rewards()
+        all_rewards.extend(rewards)
+
+        for traj, env in zip(tg.trajectories_G, envs):
+            traj_speedups = []
+
+            for trans in traj.transitions:
+                if trans.metrics:
+                    turn = trans.metrics.get("turn", 0)
+                    if turn not in turn_compiled:
+                        turn_compiled[turn] = []
+                        turn_correct[turn] = []
+
+                    compiled = trans.metrics.get("compiled", 0)
+                    correct = trans.metrics.get("correctness", 0)
+
+                    turn_compiled[turn].append(compiled)
+                    turn_correct[turn].append(correct)
+
+                    all_format_ok.append(trans.metrics.get("format_ok", 0))
+                    all_compiled.append(compiled)
+                    all_correct.append(correct)
+
+                    if "step_score" in trans.metrics:
+                        all_step_scores.append(trans.metrics["step_score"])
+                    if "time/eval" in trans.metrics:
+                        all_eval_times.append(trans.metrics["time/eval"])
+                    if "time/step_total" in trans.metrics:
+                        all_step_times.append(trans.metrics["time/step_total"])
+                    if "speedup" in trans.metrics:
+                        traj_speedups.append(trans.metrics["speedup"])
+
+            if traj_speedups:
+                all_best_speedup.append(max(traj_speedups))
+
+            if isinstance(env, MultiTurnKernelBenchEnv):
+                all_success.append(float(env.state.success))
+                all_num_turns.append(env.state.turn_idx)
+
+    if all_rewards:
+        metrics["reward/mean"] = float(np.mean(all_rewards))
+        metrics["reward/std"] = float(np.std(all_rewards))
+        metrics["reward/min"] = float(np.min(all_rewards))
+        metrics["reward/max"] = float(np.max(all_rewards))
+
+    if all_format_ok:
+        metrics["multiturn/format_rate"] = float(np.mean(all_format_ok))
+    if all_compiled:
+        metrics["multiturn/compile_rate"] = float(np.mean(all_compiled))
+    if all_correct:
+        metrics["multiturn/correct_rate"] = float(np.mean(all_correct))
+    if all_step_scores:
+        metrics["multiturn/step_score_mean"] = float(np.mean(all_step_scores))
+    if all_success:
+        metrics["multiturn/success_rate"] = float(np.mean(all_success))
+    if all_num_turns:
+        metrics["multiturn/avg_turns"] = float(np.mean(all_num_turns))
+    if all_best_speedup:
+        metrics["multiturn/best_speedup_mean"] = float(np.mean(all_best_speedup))
+    if all_eval_times:
+        metrics["time/eval_mean"] = float(np.mean(all_eval_times))
+    if all_step_times:
+        metrics["time/step_mean"] = float(np.mean(all_step_times))
+
+    for turn in sorted(turn_compiled.keys()):
+        if turn_compiled[turn]:
+            metrics[f"multiturn/turn_{turn}/compile_rate"] = float(
+                np.mean(turn_compiled[turn])
+            )
+        if turn_correct[turn]:
+            metrics[f"multiturn/turn_{turn}/correct_rate"] = float(
+                np.mean(turn_correct[turn])
+            )
+
+    metrics["batch/num_groups"] = len(trajectory_groups)
+    metrics["batch/num_trajectories"] = sum(
+        len(tg.trajectories_G) for tg in trajectory_groups
+    )
+    metrics["batch/total_steps"] = len(all_step_scores)
+
+    return metrics
 
 
 def compute_trajectory_metrics(
@@ -330,11 +531,17 @@ async def run_training_loop(
     Main RL training loop for KernelBench.
 
     This implements synchronous on-policy training with GRPO-style
-    grouped rollouts.
+    grouped rollouts.  Supports both single-turn and multi-turn modes.
 
     Args:
         cfg: Training configuration
     """
+    is_multiturn = cfg.mode == "multi_turn"
+    if is_multiturn:
+        logger.info("Running in MULTI-TURN mode")
+        logger.info(f"  max_turns: {cfg.max_turns}")
+        logger.info(f"  gamma (discount): {cfg.gamma}")
+
     # Setup logging
     os.makedirs(cfg.log_path, exist_ok=True)
     ml_logger = ml_log.setup_logging(
@@ -355,6 +562,7 @@ async def run_training_loop(
         tb_logger.log_training_config(cfg)
 
     logger.info("Starting KernelBench RL training")
+    logger.info(f"Mode: {cfg.mode}")
     logger.info(f"Model: {cfg.model_name}")
     logger.info(f"Log path: {cfg.log_path}")
     if tb_logger:
@@ -414,8 +622,52 @@ async def run_training_loop(
     tokenizer = training_client.get_tokenizer()
 
     # Create dataset (pass tokenizer for renderer)
-    dataset_builder = cfg.dataset_builder
-    logger.info("Using KernelBenchDatasetBuilder")
+    if is_multiturn:
+        if cfg.multiturn_dataset_builder is not None:
+            dataset_builder = cfg.multiturn_dataset_builder
+        else:
+            # Build multi-turn dataset from single-turn config
+            dataset_builder = MultiTurnKernelBenchDatasetBuilder(
+                level=cfg.dataset_builder.level,
+                start_problem=cfg.dataset_builder.start_problem,
+                end_problem=cfg.dataset_builder.end_problem,
+                backend=cfg.dataset_builder.backend,
+                dataset_src=cfg.dataset_builder.dataset_src,
+                batch_size=cfg.dataset_builder.batch_size,
+                group_size=cfg.dataset_builder.group_size,
+                num_epochs=cfg.dataset_builder.num_epochs,
+                shuffle=cfg.dataset_builder.shuffle,
+                max_turns=cfg.max_turns,
+                num_correct_trials=cfg.dataset_builder.num_correct_trials,
+                measure_performance=cfg.dataset_builder.measure_performance,
+                num_perf_trials=cfg.dataset_builder.num_perf_trials,
+                timing_method=cfg.dataset_builder.timing_method,
+                precision=cfg.dataset_builder.precision,
+                check_for_excessive_speedup=cfg.dataset_builder.check_for_excessive_speedup,
+                excessive_speedup_threshold=cfg.dataset_builder.excessive_speedup_threshold,
+                reward_format_weight=cfg.dataset_builder.reward_format_weight,
+                reward_compile_weight=cfg.dataset_builder.reward_compile_weight,
+                reward_correctness_weight=cfg.dataset_builder.reward_correctness_weight,
+                reward_speed_weight=cfg.dataset_builder.reward_speed_weight,
+                reward_length_weight=cfg.dataset_builder.reward_length_weight,
+                reward_enable_static_checker=cfg.dataset_builder.reward_enable_static_checker,
+                reward_static_checker_backend=cfg.dataset_builder.reward_static_checker_backend,
+                reward_static_checker_precision=cfg.dataset_builder.reward_static_checker_precision,
+                reward_static_checker_strict=cfg.dataset_builder.reward_static_checker_strict,
+                reward_static_checker_warnings=cfg.dataset_builder.reward_static_checker_warnings,
+                renderer_name=cfg.dataset_builder.renderer_name,
+                test_fraction=cfg.dataset_builder.test_fraction,
+                prompt_option=cfg.dataset_builder.prompt_option,
+                prompt_precision=cfg.dataset_builder.prompt_precision,
+                prompt_include_hardware=cfg.dataset_builder.prompt_include_hardware,
+                prompt_gpu_name=cfg.dataset_builder.prompt_gpu_name,
+                modal_gpu_type=cfg.dataset_builder.modal_gpu_type,
+                modal_timeout=cfg.dataset_builder.modal_timeout,
+            )
+        logger.info("Using MultiTurnKernelBenchDatasetBuilder")
+    else:
+        dataset_builder = cfg.dataset_builder
+        logger.info("Using KernelBenchDatasetBuilder (single-turn)")
 
     train_dataset, test_dataset = await dataset_builder(tokenizer=tokenizer)
     num_batches = len(train_dataset)
@@ -429,47 +681,99 @@ async def run_training_loop(
     # Training loop
     for batch_idx in range(start_batch, num_batches):
         t_start = time.time()
-        metrics = {
+        metrics: dict[str, Any] = {
             "progress/batch": batch_idx,
             "progress/done_frac": (batch_idx + 1) / num_batches,
             "optim/lr": cfg.learning_rate,
+            "mode": 1 if is_multiturn else 0,
         }
 
         # Get batch of env group builders
         env_group_builders = train_dataset.get_batch(batch_idx)
 
-        # Collect rollouts (single-turn)
-        with timed("rollout", metrics):
-            try:
-                results = await asyncio.gather(*[
-                    do_group_rollout_and_filter(
-                        sampling_client,
-                        builder,
-                        max_tokens=cfg.max_tokens,
-                        temperature=cfg.temperature,
-                        do_remove_constant_reward_groups=cfg.remove_constant_reward_groups,
+        if is_multiturn:
+            # ----- Multi-turn rollouts -----
+            with timed("rollout", metrics):
+                try:
+                    results = await asyncio.gather(
+                        *[
+                            do_group_rollout_with_envs(
+                                sampling_client,
+                                builder,
+                                max_tokens=cfg.max_tokens,
+                                temperature=cfg.temperature,
+                                do_remove_constant_reward_groups=cfg.remove_constant_reward_groups,
+                            )
+                            for builder in env_group_builders
+                        ],
+                        return_exceptions=True,
                     )
-                    for builder in env_group_builders
-                ], return_exceptions=True)
-            except Exception:
-                logger.exception("Group rollout failed during gather")
-                raise
+                except Exception:
+                    logger.exception("Group rollout failed during gather")
+                    raise
 
-        # Filter out None (removed constant reward groups) and exceptions
-        trajectory_groups = []
-        for tg in results:
-            if isinstance(tg, Exception):
-                logger.error("Group rollout failed", exc_info=tg)
-            elif tg is not None:
-                trajectory_groups.append(tg)
+            trajectory_groups: list[TrajectoryGroup] = []
+            env_groups: list[Sequence[Env]] = []
+            for r in results:
+                if isinstance(r, Exception):
+                    logger.error("Group rollout failed", exc_info=r)
+                    continue
+                tg, envs = r
+                if tg is not None:
+                    trajectory_groups.append(tg)
+                    env_groups.append(envs)
 
-        if len(trajectory_groups) == 0:
-            logger.warning(f"Batch {batch_idx}: All groups filtered out, skipping")
-            continue
+            if len(trajectory_groups) == 0:
+                logger.warning(
+                    f"Batch {batch_idx}: All groups filtered out, skipping"
+                )
+                continue
 
-        # Compute metrics
-        traj_metrics = compute_trajectory_metrics(trajectory_groups)
-        metrics.update(traj_metrics)
+            with timed("discount_returns", metrics):
+                apply_discounted_returns_to_trajectories(
+                    trajectory_groups, env_groups, gamma=cfg.gamma
+                )
+
+            traj_metrics = compute_multiturn_trajectory_metrics(
+                trajectory_groups, env_groups
+            )
+            metrics.update(traj_metrics)
+        else:
+            # ----- Single-turn rollouts (original path) -----
+            with timed("rollout", metrics):
+                try:
+                    results = await asyncio.gather(
+                        *[
+                            do_group_rollout_and_filter(
+                                sampling_client,
+                                builder,
+                                max_tokens=cfg.max_tokens,
+                                temperature=cfg.temperature,
+                                do_remove_constant_reward_groups=cfg.remove_constant_reward_groups,
+                            )
+                            for builder in env_group_builders
+                        ],
+                        return_exceptions=True,
+                    )
+                except Exception:
+                    logger.exception("Group rollout failed during gather")
+                    raise
+
+            trajectory_groups = []
+            for tg in results:
+                if isinstance(tg, Exception):
+                    logger.error("Group rollout failed", exc_info=tg)
+                elif tg is not None:
+                    trajectory_groups.append(tg)
+
+            if len(trajectory_groups) == 0:
+                logger.warning(
+                    f"Batch {batch_idx}: All groups filtered out, skipping"
+                )
+                continue
+
+            traj_metrics = compute_trajectory_metrics(trajectory_groups)
+            metrics.update(traj_metrics)
 
         # Compute advantages and assemble training data
         with timed("assemble_data", metrics):
@@ -487,8 +791,10 @@ async def run_training_loop(
             )
 
         # Save checkpoint and get new sampling client
-        sampling_client, checkpoint_metrics = await save_checkpoint_and_get_sampling_client(
-            training_client, batch_idx + 1, cfg.log_path, cfg.save_every
+        sampling_client, checkpoint_metrics = (
+            await save_checkpoint_and_get_sampling_client(
+                training_client, batch_idx + 1, cfg.log_path, cfg.save_every
+            )
         )
         metrics.update(checkpoint_metrics)
 
@@ -503,12 +809,22 @@ async def run_training_loop(
             tb_logger.log_per_level_metrics(trajectory_groups, batch_idx)
             tb_logger.log_advantage_statistics(advantages, batch_idx)
 
-        logger.info(
-            f"Batch {batch_idx}/{num_batches}: "
-            f"reward={metrics.get('reward/mean', 0):.3f}, "
-            f"compile={metrics.get('kernel/compile_rate', 0):.1%}, "
-            f"correct={metrics.get('kernel/correct_rate', 0):.1%}"
-        )
+        if is_multiturn:
+            logger.info(
+                f"Batch {batch_idx}/{num_batches}: "
+                f"step_score={metrics.get('multiturn/step_score_mean', 0):.3f}, "
+                f"compile={metrics.get('multiturn/compile_rate', 0):.1%}, "
+                f"correct={metrics.get('multiturn/correct_rate', 0):.1%}, "
+                f"success={metrics.get('multiturn/success_rate', 0):.1%}, "
+                f"avg_turns={metrics.get('multiturn/avg_turns', 0):.1f}"
+            )
+        else:
+            logger.info(
+                f"Batch {batch_idx}/{num_batches}: "
+                f"reward={metrics.get('reward/mean', 0):.3f}, "
+                f"compile={metrics.get('kernel/compile_rate', 0):.1%}, "
+                f"correct={metrics.get('kernel/correct_rate', 0):.1%}"
+            )
 
     # Save final checkpoint
     if start_batch < num_batches:
