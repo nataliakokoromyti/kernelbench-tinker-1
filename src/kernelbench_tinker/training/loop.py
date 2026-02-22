@@ -94,6 +94,8 @@ class TrainingConfig:
     # Training configuration
     num_substeps: int = 1  # Optimizer steps per batch
     loss_fn: LossFnType = "importance_sampling"
+    max_grad_norm: float = 0.0  # 0.0 = no clipping; Kevin multi-turn uses 0.05
+    warmup_ratio: float = 0.0  # Fraction of batches for linear LR warmup
 
     # KL regularization
     kl_penalty_coef: float = 0.0
@@ -381,6 +383,10 @@ def compute_multiturn_trajectory_metrics(
         metrics["multiturn/compile_rate"] = float(np.mean(all_compiled))
     if all_correct:
         metrics["multiturn/correct_rate"] = float(np.mean(all_correct))
+    # Not Okay Ratio: fraction of steps that failed format, compile, or correctness
+    if all_format_ok:
+        not_ok = [1.0 - (f and c and r) for f, c, r in zip(all_format_ok, all_compiled, all_correct)]
+        metrics["multiturn/not_okay_rate"] = float(np.mean(not_ok))
     if all_step_scores:
         metrics["multiturn/raw_score_mean"] = float(np.mean(all_step_scores))
     if all_success:
@@ -468,6 +474,10 @@ def compute_trajectory_metrics(
         metrics["kernel/compile_rate"] = float(np.mean(all_compiled))
     if all_correct:
         metrics["kernel/correct_rate"] = float(np.mean(all_correct))
+    # Not Okay Ratio: fraction of responses that failed format, compile, or correctness
+    if all_format_ok:
+        not_ok = [1.0 - (f and c and r) for f, c, r in zip(all_format_ok, all_compiled, all_correct)]
+        metrics["kernel/not_okay_rate"] = float(np.mean(not_ok))
     if all_eval_times:
         metrics["time/eval_mean"] = float(np.mean(all_eval_times))
         metrics["time/eval_max"] = float(np.max(all_eval_times))
@@ -496,6 +506,7 @@ async def train_step(
     learning_rate: float,
     num_substeps: int,
     loss_fn: LossFnType,
+    max_grad_norm: float = 0.0,
 ) -> list[torch.Tensor]:
     """
     Perform a training step with gradient accumulation.
@@ -506,6 +517,7 @@ async def train_step(
         learning_rate: Learning rate
         num_substeps: Number of optimizer steps
         loss_fn: Loss function type
+        max_grad_norm: Max gradient norm for clipping (0.0 = no clipping)
 
     Returns:
         List of training logprobs tensors
@@ -528,7 +540,7 @@ async def train_step(
             training_logprobs.append(output["logprobs"].to_torch())
 
         # Optimizer step
-        adam_params = get_adam_params(learning_rate)
+        adam_params = get_adam_params(learning_rate, max_grad_norm=max_grad_norm)
         optim_future = await training_client.optim_step_async(adam_params)
         await optim_future.result_async()
 
@@ -695,6 +707,11 @@ async def run_training_loop(
     num_batches = len(train_dataset)
     logger.info(f"Training on {num_batches} batches")
 
+    # Warmup schedule
+    warmup_batches = int(num_batches * cfg.warmup_ratio)
+    if warmup_batches > 0:
+        logger.info(f"Linear LR warmup for {warmup_batches} batches")
+
     # Get initial sampling client
     sampling_client, _ = await save_checkpoint_and_get_sampling_client(
         training_client, start_batch, cfg.log_path, cfg.save_every, start_batch
@@ -706,7 +723,6 @@ async def run_training_loop(
         metrics: dict[str, Any] = {
             "progress/batch": batch_idx,
             "progress/done_frac": (batch_idx + 1) / num_batches,
-            "optim/lr": cfg.learning_rate,
             "mode": 1 if is_multiturn else 0,
         }
 
@@ -816,14 +832,22 @@ async def run_training_loop(
                 advantages = compute_advantages(trajectory_groups)
             data, _metadata = assemble_training_data(trajectory_groups, advantages)
 
+        # Compute effective learning rate (linear warmup)
+        if warmup_batches > 0 and batch_idx < warmup_batches:
+            lr = cfg.learning_rate * (batch_idx + 1) / warmup_batches
+        else:
+            lr = cfg.learning_rate
+        metrics["optim/lr"] = lr
+
         # Training step
         with timed("train", metrics):
             await train_step(
                 data,
                 training_client,
-                cfg.learning_rate,
+                lr,
                 cfg.num_substeps,
                 cfg.loss_fn,
+                max_grad_norm=cfg.max_grad_norm,
             )
 
         # Save checkpoint and get new sampling client

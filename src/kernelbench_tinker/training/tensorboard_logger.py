@@ -165,6 +165,12 @@ class TensorBoardLogger:
         if "kernel/cheat_rate" in metrics:
             self.writer.add_scalar("Kernel/CheatRate", metrics["kernel/cheat_rate"], step)
 
+        # Not Okay Ratio (stability predictor)
+        for key in ("kernel/not_okay_rate", "multiturn/not_okay_rate"):
+            if key in metrics:
+                self.writer.add_scalar("Kernel/NotOkayRate", metrics[key], step)
+                break
+
         # Combined kernel quality chart
         quality_metrics = {}
         for name in ("format", "compile", "correct"):

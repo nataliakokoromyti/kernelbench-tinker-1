@@ -42,6 +42,8 @@ multiturn:
 # =============================================================================
 num_substeps: 2
 loss_fn: "importance_sampling"
+max_grad_norm: 0.05                    # Gradient clipping (0.0 = disabled)
+warmup_ratio: 0.03                     # Linear LR warmup fraction
 
 # KL Regularization (optional)
 kl_penalty_coef: 0.0

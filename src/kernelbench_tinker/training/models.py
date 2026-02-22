@@ -28,11 +28,15 @@ def get_renderer_name_for_model(model_name: str) -> str:
     return "role_colon"
 
 
-def get_adam_params(learning_rate: float) -> tinker.AdamParams:
+def get_adam_params(
+    learning_rate: float,
+    max_grad_norm: float = 0.0,
+) -> tinker.AdamParams:
     """Get Adam optimizer parameters."""
     return tinker.AdamParams(
         learning_rate=learning_rate,
         beta1=0.9,
         beta2=0.95,
         eps=1e-8,
+        grad_clip_norm=max_grad_norm,
     )
