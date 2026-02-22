@@ -10,7 +10,6 @@ This module implements reward functions that combine:
 
 from __future__ import annotations
 
-import math
 import sys
 from dataclasses import dataclass
 from pathlib import Path
