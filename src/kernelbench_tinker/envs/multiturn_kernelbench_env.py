@@ -23,7 +23,6 @@ from tinker_cookbook.rl.types import (
     EnvGroupBuilder,
     Metrics,
     Observation,
-    RLDataset,
     StepResult,
     Trajectory,
 )
@@ -591,74 +590,5 @@ class MultiTurnKernelBenchEnvGroupBuilder(EnvGroupBuilder):
             "kernelbench",
             "multiturn",
         ]
-
-
-class MultiTurnKernelBenchRLDataset(RLDataset):
-    """RL Dataset for multi-turn KernelBench problems."""
-
-    def __init__(
-        self,
-        problems: list[KernelBenchProblem],
-        renderer: renderers.Renderer,
-        batch_size: int,
-        group_size: int,
-        max_turns: int = 4,
-        eval_config: EvalConfig | None = None,
-        reward_config: RewardConfig | None = None,
-        system_prompt: str | None = None,
-        early_stop_on_correct: bool = False,
-        speedup_threshold: float | None = None,
-        shuffle: bool = True,
-        num_epochs: int = 1,
-    ):
-        self.problems = problems
-        self.renderer = renderer
-        self.batch_size = batch_size
-        self.group_size = group_size
-        self.max_turns = max_turns
-        self.eval_config = eval_config or EvalConfig()
-        self.reward_config = reward_config or RewardConfig()
-        self.system_prompt = system_prompt
-        self.early_stop_on_correct = early_stop_on_correct
-        self.speedup_threshold = speedup_threshold
-        self.shuffle = shuffle
-        self.num_epochs = num_epochs
-
-        import random
-
-        self._problem_indices: list[int] = []
-        for _ in range(num_epochs):
-            epoch_indices = list(range(len(problems)))
-            if shuffle:
-                random.shuffle(epoch_indices)
-            self._problem_indices.extend(epoch_indices)
-
-    def __len__(self) -> int:
-        total_problems = len(self.problems) * self.num_epochs
-        return (total_problems + self.batch_size - 1) // self.batch_size
-
-    def get_batch(self, index: int) -> Sequence[EnvGroupBuilder]:
-        start_idx = index * self.batch_size
-        end_idx = min(start_idx + self.batch_size, len(self._problem_indices))
-
-        builders = []
-        for i in range(start_idx, end_idx):
-            problem_idx = self._problem_indices[i]
-            problem = self.problems[problem_idx]
-
-            builder = MultiTurnKernelBenchEnvGroupBuilder(
-                problem=problem,
-                renderer=self.renderer,
-                group_size=self.group_size,
-                max_turns=self.max_turns,
-                eval_config=self.eval_config,
-                reward_config=self.reward_config,
-                system_prompt=self.system_prompt,
-                early_stop_on_correct=self.early_stop_on_correct,
-                speedup_threshold=self.speedup_threshold,
-            )
-            builders.append(builder)
-
-        return builders
 
 

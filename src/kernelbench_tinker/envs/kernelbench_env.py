@@ -348,20 +348,12 @@ class KernelBenchRLDataset(RLDataset):
         reward_config: RewardConfig | None = None,
         shuffle: bool = True,
         num_epochs: int = 1,
+        # Multi-turn fields (active when max_turns > 1)
+        max_turns: int = 1,
+        system_prompt: str | None = None,
+        early_stop_on_correct: bool = False,
+        speedup_threshold: float | None = None,
     ):
-        """
-        Initialize the RL dataset.
-
-        Args:
-            problems: List of KernelBench problems
-            renderer: Tinker renderer for formatting
-            batch_size: Number of problems per batch
-            group_size: Number of rollouts per problem
-            eval_config: Configuration for kernel evaluation
-            reward_config: Reward configuration
-            shuffle: Whether to shuffle problems each epoch
-            num_epochs: Number of training epochs
-        """
         self.problems = problems
         self.renderer = renderer
         self.batch_size = batch_size
@@ -370,6 +362,10 @@ class KernelBenchRLDataset(RLDataset):
         self.reward_config = reward_config or RewardConfig()
         self.shuffle = shuffle
         self.num_epochs = num_epochs
+        self.max_turns = max_turns
+        self.system_prompt = system_prompt
+        self.early_stop_on_correct = early_stop_on_correct
+        self.speedup_threshold = speedup_threshold
 
         # Create shuffled indices for each epoch
         self._problem_indices: list[int] = []
@@ -402,13 +398,29 @@ class KernelBenchRLDataset(RLDataset):
             problem_idx = self._problem_indices[i]
             problem = self.problems[problem_idx]
 
-            builder = KernelBenchEnvGroupBuilder(
-                problem=problem,
-                renderer=self.renderer,
-                group_size=self.group_size,
-                eval_config=self.eval_config,
-                reward_config=self.reward_config,
-            )
+            if self.max_turns > 1:
+                from kernelbench_tinker.envs.multiturn_kernelbench_env import (
+                    MultiTurnKernelBenchEnvGroupBuilder,
+                )
+                builder = MultiTurnKernelBenchEnvGroupBuilder(
+                    problem=problem,
+                    renderer=self.renderer,
+                    group_size=self.group_size,
+                    max_turns=self.max_turns,
+                    eval_config=self.eval_config,
+                    reward_config=self.reward_config,
+                    system_prompt=self.system_prompt,
+                    early_stop_on_correct=self.early_stop_on_correct,
+                    speedup_threshold=self.speedup_threshold,
+                )
+            else:
+                builder = KernelBenchEnvGroupBuilder(
+                    problem=problem,
+                    renderer=self.renderer,
+                    group_size=self.group_size,
+                    eval_config=self.eval_config,
+                    reward_config=self.reward_config,
+                )
             builders.append(builder)
 
         return builders
@@ -561,23 +573,8 @@ class KernelBenchDatasetBuilder(RLDatasetBuilder):
         set_modal_evaluator(ModalKernelEvaluator(modal_config))
         logger.info(f"Modal evaluator configured: GPU={eval_config.modal_gpu_type}, timeout={eval_config.modal_timeout}s")
 
-        # Select dataset class based on single-turn vs multi-turn
-        if self.max_turns > 1:
-            from kernelbench_tinker.envs.multiturn_kernelbench_env import (
-                MultiTurnKernelBenchRLDataset,
-            )
-            DatasetClass = MultiTurnKernelBenchRLDataset
-            extra_kwargs = dict(
-                max_turns=self.max_turns,
-                early_stop_on_correct=self.early_stop_on_correct,
-                speedup_threshold=self.speedup_threshold,
-            )
-        else:
-            DatasetClass = KernelBenchRLDataset
-            extra_kwargs = {}
-
         # Create train dataset
-        train_dataset = DatasetClass(
+        train_dataset = KernelBenchRLDataset(
             problems=train_problems,
             renderer=renderer,
             batch_size=self.batch_size,
@@ -586,13 +583,15 @@ class KernelBenchDatasetBuilder(RLDatasetBuilder):
             reward_config=reward_config,
             shuffle=self.shuffle,
             num_epochs=self.num_epochs,
-            **extra_kwargs,
+            max_turns=self.max_turns,
+            early_stop_on_correct=self.early_stop_on_correct,
+            speedup_threshold=self.speedup_threshold,
         )
 
         # Create test dataset if we have test problems
         test_dataset = None
         if test_problems:
-            test_dataset = DatasetClass(
+            test_dataset = KernelBenchRLDataset(
                 problems=test_problems,
                 renderer=renderer,
                 batch_size=self.batch_size,
@@ -601,7 +600,9 @@ class KernelBenchDatasetBuilder(RLDatasetBuilder):
                 reward_config=reward_config,
                 shuffle=False,
                 num_epochs=1,
-                **extra_kwargs,
+                max_turns=self.max_turns,
+                early_stop_on_correct=self.early_stop_on_correct,
+                speedup_threshold=self.speedup_threshold,
             )
 
         return train_dataset, test_dataset
