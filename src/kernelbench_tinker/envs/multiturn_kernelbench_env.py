@@ -216,7 +216,7 @@ class MultiTurnKernelBenchEnv(Env):
         eval_config: EvalConfig | None = None,
         reward_config: RewardConfig | None = None,
         system_prompt: str | None = None,
-        early_stop_on_correct: bool = True,
+        early_stop_on_correct: bool = False,
         speedup_threshold: float | None = None,
     ):
         self.problem = problem
@@ -562,7 +562,7 @@ class MultiTurnKernelBenchEnvGroupBuilder(EnvGroupBuilder):
     eval_config: EvalConfig = field(default_factory=EvalConfig)
     reward_config: RewardConfig = field(default_factory=RewardConfig)
     system_prompt: str | None = None
-    early_stop_on_correct: bool = True
+    early_stop_on_correct: bool = False
     speedup_threshold: float | None = None
 
     async def make_envs(self) -> Sequence[Env]:
@@ -609,7 +609,7 @@ class MultiTurnKernelBenchRLDataset(RLDataset):
         eval_config: EvalConfig | None = None,
         reward_config: RewardConfig | None = None,
         system_prompt: str | None = None,
-        early_stop_on_correct: bool = True,
+        early_stop_on_correct: bool = False,
         speedup_threshold: float | None = None,
         shuffle: bool = True,
         num_epochs: int = 1,
@@ -684,7 +684,7 @@ class MultiTurnKernelBenchDatasetBuilder(RLDatasetBuilder):
 
     # Multi-turn configuration
     max_turns: int = 4
-    early_stop_on_correct: bool = True
+    early_stop_on_correct: bool = False
     speedup_threshold: float | None = None
 
     # Evaluation configuration

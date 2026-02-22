@@ -81,8 +81,10 @@ class MultiTurnConfig:
     #   max: R_t = max{ γ^(i-t) × S_i } (reward turns leading to one great kernel)
     aggregation: str = "sum"
 
-    # Stop the episode early when the kernel is correct
-    early_stop_on_correct: bool = True
+    # Stop the episode early when the kernel is correct.
+    # Default False for training: model needs post-correctness turns to
+    # learn speedup optimization.  Set True at eval time if desired.
+    early_stop_on_correct: bool = False
 
     # Optional: require this speedup before early stopping
     speedup_threshold: float | None = None
