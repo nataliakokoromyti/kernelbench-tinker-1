@@ -56,16 +56,31 @@ from kernelbench_tinker.training.tensorboard_logger import (
 from kernelbench_tinker.training.trace_logger import TraceLogger, set_trace_logger
 
 
-def remove_mask(datum: tinker.Datum) -> tinker.Datum:
-    """Remove mask from datum loss_fn_inputs before sending to forward_backward.
+def prepare_datum(
+    datum: tinker.Datum,
+    loss_fn: str = "importance_sampling",
+    clip_epsilon_low: float = 0.0,
+    clip_epsilon_high: float = 0.0,
+) -> tinker.Datum:
+    """Prepare a datum for forward-backward.
 
-    The Tinker API doesn't expect the mask key in loss_fn_inputs, so we need to
-    remove it before sending the datum to forward_backward.
+    Removes the mask key (not expected by Tinker API) and, when using PPO loss,
+    adds per-token clip thresholds for asymmetric Clip-High clipping.
     """
-    return tinker.Datum(
-        model_input=datum.model_input,
-        loss_fn_inputs={k: v for k, v in datum.loss_fn_inputs.items() if k != "mask"},
-    )
+    inputs = {k: v for k, v in datum.loss_fn_inputs.items() if k != "mask"}
+
+    if loss_fn == "ppo" and clip_epsilon_low > 0:
+        logprobs_td = inputs["logprobs"]
+        seq_len = logprobs_td.to_torch().shape[0]
+        td_cls = type(logprobs_td)
+        inputs["clip_low_threshold"] = td_cls.from_torch(
+            torch.full((seq_len,), 1.0 - clip_epsilon_low, dtype=torch.float32)
+        )
+        inputs["clip_high_threshold"] = td_cls.from_torch(
+            torch.full((seq_len,), 1.0 + clip_epsilon_high, dtype=torch.float32)
+        )
+
+    return tinker.Datum(model_input=datum.model_input, loss_fn_inputs=inputs)
 
 logger = logging.getLogger(__name__)
 
@@ -94,8 +109,10 @@ class TrainingConfig:
     # Training configuration
     num_substeps: int = 1  # Optimizer steps per batch
     loss_fn: LossFnType = "importance_sampling"
-    max_grad_norm: float = 0.0  # 0.0 = no clipping; Kevin multi-turn uses 0.05
+    max_grad_norm: float = 0.0  # 0.0 = no clipping; Kevin uses 0.05
     warmup_ratio: float = 0.0  # Fraction of batches for linear LR warmup
+    clip_epsilon_low: float = 0.0  # PPO clip lower bound (0.0 = use server default)
+    clip_epsilon_high: float = 0.0  # PPO clip upper bound (Clip-High: 0.28)
 
     # KL regularization
     kl_penalty_coef: float = 0.0
@@ -507,6 +524,8 @@ async def train_step(
     num_substeps: int,
     loss_fn: LossFnType,
     max_grad_norm: float = 0.0,
+    clip_epsilon_low: float = 0.0,
+    clip_epsilon_high: float = 0.0,
 ) -> list[torch.Tensor]:
     """
     Perform a training step with gradient accumulation.
@@ -518,6 +537,8 @@ async def train_step(
         num_substeps: Number of optimizer steps
         loss_fn: Loss function type
         max_grad_norm: Max gradient norm for clipping (0.0 = no clipping)
+        clip_epsilon_low: PPO clip lower epsilon (0.0 = use server default)
+        clip_epsilon_high: PPO clip upper epsilon (Clip-High asymmetric)
 
     Returns:
         List of training logprobs tensors
@@ -529,9 +550,15 @@ async def train_step(
     for i in range(0, len(data), substep_size):
         batch = data[i : i + substep_size]
 
-        # Forward-backward pass (remove mask key from datums)
+        # Prepare datums: remove mask, add PPO clip thresholds if configured
+        prepared = [
+            prepare_datum(d, loss_fn, clip_epsilon_low, clip_epsilon_high)
+            for d in batch
+        ]
+
+        # Forward-backward pass
         fwd_bwd_future = await training_client.forward_backward_async(
-            [remove_mask(d) for d in batch], loss_fn=loss_fn
+            prepared, loss_fn=loss_fn
         )
         fwd_bwd_result = await fwd_bwd_future.result_async()
 
@@ -848,6 +875,8 @@ async def run_training_loop(
                 cfg.num_substeps,
                 cfg.loss_fn,
                 max_grad_norm=cfg.max_grad_norm,
+                clip_epsilon_low=cfg.clip_epsilon_low,
+                clip_epsilon_high=cfg.clip_epsilon_high,
             )
 
         # Save checkpoint and get new sampling client

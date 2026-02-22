@@ -24,7 +24,7 @@ learning_rate: 0.000002  # 2e-6 as explicit float
 # Generation Configuration
 # =============================================================================
 max_tokens: 16384
-temperature: 1.0
+temperature: 0.9
 
 # =============================================================================
 # Multi-turn Configuration
@@ -41,9 +41,11 @@ multiturn:
 # Training Configuration
 # =============================================================================
 num_substeps: 2
-loss_fn: "importance_sampling"
+loss_fn: "ppo"
 max_grad_norm: 0.05                    # Gradient clipping (0.0 = disabled)
 warmup_ratio: 0.03                     # Linear LR warmup fraction
+clip_epsilon_low: 0.2                  # PPO clip lower bound
+clip_epsilon_high: 0.28                # PPO clip upper bound (Clip-High)
 
 # KL Regularization (optional)
 kl_penalty_coef: 0.0
