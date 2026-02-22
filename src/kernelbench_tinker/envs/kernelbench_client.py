@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import functools
 import hashlib
-import os
 import re
 import sys
 import time

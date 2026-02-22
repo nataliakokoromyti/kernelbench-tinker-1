@@ -415,14 +415,12 @@ def compute_multiturn_trajectory_metrics(
 
 def compute_trajectory_metrics(
     trajectory_groups: list[TrajectoryGroup],
-    taglist: list[list[str]] | None = None,
 ) -> dict[str, Any]:
     """
     Compute aggregate metrics from trajectory groups.
 
     Args:
         trajectory_groups: List of trajectory groups
-        taglist: Optional tags for each group
 
     Returns:
         Dictionary of metrics

@@ -10,6 +10,7 @@ This module implements reward functions that combine:
 
 from __future__ import annotations
 
+import logging
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,6 +29,8 @@ except ImportError:
 
 if TYPE_CHECKING:
     from kernelbench_tinker.envs.kernelbench_client import KernelEvalResult
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -335,16 +338,11 @@ def compute_reward(
         )
         
         # Log warnings (don't zero reward)
-        if warnings:
-            import logging
-            logger = logging.getLogger(__name__)
-            for warning in warnings:
-                logger.warning(f"Static checker warning: {warning}")
-        
+        for warning in warnings:
+            logger.warning(f"Static checker warning: {warning}")
+
         # Zero reward if errors detected
         if has_errors:
-            import logging
-            logger = logging.getLogger(__name__)
             for error in errors:
                 logger.error(f"Reward hacking detected (reward set to 0): {error}")
             return 0.0
