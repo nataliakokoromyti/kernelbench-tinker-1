@@ -491,12 +491,8 @@ def compute_discounted_returns(
         return returns
 
     # aggregation == "max"
-    returns = [0.0] * T
-    for t in range(T):
-        best = 0.0
-        for i in range(t, T):
-            candidate = gamma ** (i - t) * step_scores[i]
-            if candidate > best:
-                best = candidate
-        returns[t] = best
+    returns = [
+        max(gamma ** (i - t) * step_scores[i] for i in range(t, T))
+        for t in range(T)
+    ]
     return returns
