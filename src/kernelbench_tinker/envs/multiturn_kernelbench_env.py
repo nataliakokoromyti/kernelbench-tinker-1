@@ -35,6 +35,7 @@ from kernelbench_tinker.envs.kernelbench_client import (
     evaluate_kernel_async,
     parse_structured_response,
 )
+from kernelbench_tinker.envs.kernelbench_env import build_system_prompt
 from kernelbench_tinker.training.reward import (
     RewardConfig,
     compute_reward,
@@ -97,33 +98,6 @@ class MultiTurnState:
 
 
 # ---------------------------------------------------------------------------
-# Prompt templates
-# ---------------------------------------------------------------------------
-
-MULTITURN_SYSTEM_PROMPT = (
-    "You are an expert GPU kernel developer. Your task is to optimize PyTorch "
-    "operations by writing efficient custom {backend} kernels.\n\n"
-    "When given a PyTorch model, write an optimized kernel implementation. "
-    "If a previous attempt failed, fix the errors based on the feedback provided.\n\n"
-    "Your solution must:\n"
-    "- Be a drop-in replacement as a class named `ModelNew`\n"
-    "- Use custom {backend} kernels, not just PyTorch operations\n"
-    "- Be correct and produce the same results as the reference\n\n"
-    "You MUST respond in exactly this format:\n\n"
-    "<KERNEL>\n"
-    "```python\n"
-    "# Your complete optimized implementation here\n"
-    "class ModelNew(nn.Module):\n"
-    "    ...\n"
-    "```\n"
-    "</KERNEL>\n\n"
-    "<SUMMARY>\n"
-    "2-3 sentence summary of your reasoning and approach.\n"
-    "</SUMMARY>"
-)
-
-
-# ---------------------------------------------------------------------------
 # Multi-turn environment
 # ---------------------------------------------------------------------------
 
@@ -159,8 +133,8 @@ class MultiTurnKernelBenchEnv(Env):
         self.early_stop_on_correct = early_stop_on_correct
         self.speedup_threshold = speedup_threshold
 
-        self._system_prompt = system_prompt or MULTITURN_SYSTEM_PROMPT.format(
-            backend=problem.backend.upper()
+        self._system_prompt = system_prompt or build_system_prompt(
+            problem.backend, multiturn=True
         )
 
         self._current_prompt_messages: list[renderers.Message] | None = None

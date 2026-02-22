@@ -49,19 +49,17 @@ from kernelbench_tinker.training.trace_logger import get_trace_logger
 logger = logging.getLogger(__name__)
 
 
-# Default system prompt for kernel generation (structured format)
-DEFAULT_SYSTEM_PROMPT = """You are an expert GPU kernel developer. Your task is to optimize PyTorch operations by writing efficient custom GPU kernels.
+_BASE_SYSTEM_PROMPT = """\
+You are an expert GPU kernel developer. Your task is to optimize PyTorch \
+operations by writing efficient custom {backend} kernels.
 
-When given a PyTorch model, you should:
-1. Analyze the operations being performed
-2. Write an optimized kernel implementation
-3. Return your solution as a Python class named `ModelNew` that implements the same interface
+When given a PyTorch model, write an optimized kernel implementation.\
+{refinement_instruction}
 
-Your kernel should:
-- Be functionally correct (produce the same outputs as the reference)
-- Be efficient (aim for speedup over the PyTorch baseline)
-- Handle edge cases properly
-- Use the specified backend (Triton, CUDA, etc.)
+Your solution must:
+- Be a drop-in replacement as a class named `ModelNew`
+- Use custom {backend} kernels, not just PyTorch operations
+- Be correct and produce the same results as the reference
 
 You MUST respond in exactly this format:
 
@@ -71,7 +69,26 @@ You MUST respond in exactly this format:
 class ModelNew(nn.Module):
     ...
 ```
-</KERNEL>"""
+</KERNEL>{summary_block}"""
+
+_REFINEMENT_INSTRUCTION = (
+    " If a previous attempt failed, fix the errors based on the feedback provided."
+)
+
+_SUMMARY_BLOCK = """
+
+<SUMMARY>
+2-3 sentence summary of your reasoning and approach.
+</SUMMARY>"""
+
+
+def build_system_prompt(backend: str, multiturn: bool = False) -> str:
+    """Build the system prompt, optionally including multi-turn instructions."""
+    return _BASE_SYSTEM_PROMPT.format(
+        backend=backend.upper(),
+        refinement_instruction=_REFINEMENT_INSTRUCTION if multiturn else "",
+        summary_block=_SUMMARY_BLOCK if multiturn else "",
+    )
 
 
 class KernelBenchEnv(Env):
@@ -119,8 +136,7 @@ class KernelBenchEnv(Env):
         """Build the initial conversation for the problem."""
         messages: list[renderers.Message] = []
 
-        # Add system prompt if supported
-        messages.append({"role": "system", "content": DEFAULT_SYSTEM_PROMPT})
+        messages.append({"role": "system", "content": build_system_prompt(self.problem.backend)})
 
         # Add the problem prompt as user message
         messages.append({"role": "user", "content": self.problem.prompt})
