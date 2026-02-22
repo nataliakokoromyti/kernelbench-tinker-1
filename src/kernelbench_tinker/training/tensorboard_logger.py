@@ -134,21 +134,22 @@ class TensorBoardLogger:
             step: Current training step (batch index)
         """
         # === Reward Metrics ===
-        if "reward/mean" in metrics:
-            self.writer.add_scalar("Reward/Mean", metrics["reward/mean"], step)
-        if "reward/std" in metrics:
-            self.writer.add_scalar("Reward/StdDev", metrics["reward/std"], step)
-        if "reward/min" in metrics:
-            self.writer.add_scalar("Reward/Min", metrics["reward/min"], step)
-        if "reward/max" in metrics:
-            self.writer.add_scalar("Reward/Max", metrics["reward/max"], step)
+        # Single-turn emits reward/{mean,std,min,max}
+        # Multi-turn emits reward/discounted_{mean,std,min,max}
+        # Both map to the same Reward/ TensorBoard dashboard
+        for suffix in ("mean", "std", "min", "max"):
+            for key in (f"reward/{suffix}", f"reward/discounted_{suffix}"):
+                if key in metrics:
+                    self.writer.add_scalar(f"Reward/{suffix.capitalize()}", metrics[key], step)
+                    break
 
         # Combined reward chart
         reward_metrics = {}
-        for key in ["reward/mean", "reward/min", "reward/max"]:
-            if key in metrics:
-                short_key = key.split("/")[1]
-                reward_metrics[short_key] = metrics[key]
+        for suffix in ("mean", "min", "max"):
+            for key in (f"reward/{suffix}", f"reward/discounted_{suffix}"):
+                if key in metrics:
+                    reward_metrics[suffix] = metrics[key]
+                    break
         if reward_metrics:
             self.writer.add_scalars("Reward/Summary", reward_metrics, step)
 
