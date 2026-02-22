@@ -37,6 +37,7 @@ from tinker_cookbook.rl.rollouts import do_group_rollout, do_single_rollout
 from tinker_cookbook.rl.types import (
     Env,
     EnvGroupBuilder,
+    Trajectory,
     TrajectoryGroup,
 )
 from tinker_cookbook.utils import ml_log
@@ -97,7 +98,8 @@ class TrainingConfig:
 
     # Multi-turn specific config
     gamma: float = 0.4  # Discount factor for multi-turn returns
-    max_turns: int = 4  # Maximum refinement turns per episode
+    n: int = 4  # Refinement turns per trajectory
+    m: int = 16  # Parallel trajectories per problem
 
     # Training configuration
     num_substeps: int = 1  # Optimizer steps per batch
@@ -248,6 +250,54 @@ def apply_discounted_returns_to_trajectories(
             for i, trans in enumerate(traj.transitions):
                 if i < len(returns):
                     trans.reward = returns[i]
+
+
+def flatten_multiturn_trajectory_groups(
+    trajectory_groups: list[TrajectoryGroup],
+) -> list[TrajectoryGroup]:
+    """Flatten multi-turn trajectories so each turn is its own trajectory.
+
+    After discounted returns have been applied, each transition's reward is R_t.
+    Flattening makes each turn an independent "trajectory" so that:
+    - compute_multiturn_advantages normalizes across all m*n samples per task
+    - assemble_training_data creates one training datum per turn
+    """
+    flattened = []
+    for tg in trajectory_groups:
+        new_trajectories = []
+        for traj in tg.trajectories_G:
+            for trans in traj.transitions:
+                new_trajectories.append(Trajectory(transitions=[trans]))
+
+        new_group = TrajectoryGroup(
+            new_trajectories,
+            [0.0] * len(new_trajectories),
+            [{}] * len(new_trajectories),
+        )
+        flattened.append(new_group)
+    return flattened
+
+
+def compute_multiturn_advantages(
+    trajectory_groups: list[TrajectoryGroup],
+) -> list[torch.Tensor]:
+    """Per-turn advantage normalization across all m*n samples per task.
+
+    A_t = (R_t - mean(all R)) / std(all R)
+
+    Each TrajectoryGroup should already be flattened so that each
+    "trajectory" is a single turn with reward = R_t.
+    """
+    advantages_P = []
+    for tg in trajectory_groups:
+        rewards = torch.tensor(tg.get_total_rewards())
+        mean = rewards.mean()
+        std = rewards.std()
+        if std < 1e-8:
+            std = torch.tensor(1.0)
+        advantages = (rewards - mean) / std
+        advantages_P.append(advantages)
+    return advantages_P
 
 
 def compute_multiturn_trajectory_metrics(
@@ -539,7 +589,8 @@ async def run_training_loop(
     is_multiturn = cfg.mode == "multi_turn"
     if is_multiturn:
         logger.info("Running in MULTI-TURN mode")
-        logger.info(f"  max_turns: {cfg.max_turns}")
+        logger.info(f"  n (refinement turns per trajectory): {cfg.n}")
+        logger.info(f"  m (parallel trajectories): {cfg.m}")
         logger.info(f"  gamma (discount): {cfg.gamma}")
 
     # Setup logging
@@ -634,10 +685,10 @@ async def run_training_loop(
                 backend=cfg.dataset_builder.backend,
                 dataset_src=cfg.dataset_builder.dataset_src,
                 batch_size=cfg.dataset_builder.batch_size,
-                group_size=cfg.dataset_builder.group_size,
+                group_size=cfg.m,
                 num_epochs=cfg.dataset_builder.num_epochs,
                 shuffle=cfg.dataset_builder.shuffle,
-                max_turns=cfg.max_turns,
+                max_turns=cfg.n,
                 num_correct_trials=cfg.dataset_builder.num_correct_trials,
                 measure_performance=cfg.dataset_builder.measure_performance,
                 num_perf_trials=cfg.dataset_builder.num_perf_trials,
@@ -738,6 +789,13 @@ async def run_training_loop(
                 trajectory_groups, env_groups
             )
             metrics.update(traj_metrics)
+
+            # Flatten: each turn becomes its own single-transition trajectory
+            # so that advantage normalization is across all m*n turn-level samples
+            with timed("flatten", metrics):
+                trajectory_groups = flatten_multiturn_trajectory_groups(
+                    trajectory_groups
+                )
         else:
             # ----- Single-turn rollouts (original path) -----
             with timed("rollout", metrics):
@@ -777,7 +835,12 @@ async def run_training_loop(
 
         # Compute advantages and assemble training data
         with timed("assemble_data", metrics):
-            advantages = compute_advantages(trajectory_groups)
+            if is_multiturn:
+                # Per-turn normalization: A_t = (R_t - mean) / std
+                # across all m*n flattened turn-level samples
+                advantages = compute_multiturn_advantages(trajectory_groups)
+            else:
+                advantages = compute_advantages(trajectory_groups)
             data, _metadata = assemble_training_data(trajectory_groups, advantages)
 
         # Training step
