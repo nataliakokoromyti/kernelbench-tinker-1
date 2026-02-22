@@ -58,7 +58,32 @@ class PromptConfig:
     gpu_name: str | None = None
 
 
-@dataclass 
+@dataclass
+class MultiTurnConfig:
+    """
+    Configuration for multi-turn RL training.
+
+    Controls the iterative refinement loop where the model receives
+    evaluation feedback and can fix errors across multiple turns.
+    """
+
+    # Refinement turns per trajectory
+    n: int = 4
+
+    # Parallel trajectories per problem
+    m: int = 16
+
+    # Discount factor for multi-turn returns: R_t = S_t + gamma * R_{t+1}
+    gamma: float = 0.4
+
+    # Stop the episode early when the kernel is correct
+    early_stop_on_correct: bool = True
+
+    # Optional: require this speedup before early stopping
+    speedup_threshold: float | None = None
+
+
+@dataclass
 class DatasetConfig:
     """
     Configuration for dataset construction.

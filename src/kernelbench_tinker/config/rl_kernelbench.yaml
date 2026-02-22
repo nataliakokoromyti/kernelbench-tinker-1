@@ -33,9 +33,10 @@ temperature: 1.0
 mode: "single_turn"
 
 # Multi-turn settings (only used when mode: "multi_turn")
-gamma: 0.4                       # Discount factor for multi-turn returns
-n: 4                             # Refinement turns per trajectory
-m: 16                            # Parallel trajectories per problem
+multiturn:
+    n: 4                             # Refinement turns per trajectory
+    m: 16                            # Parallel trajectories per problem
+    gamma: 0.4                       # Discount factor for multi-turn returns
 
 # =============================================================================
 # Training Configuration

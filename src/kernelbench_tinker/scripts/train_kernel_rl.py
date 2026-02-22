@@ -112,9 +112,9 @@ def main():
     logger.info(f"Group size: {cfg.dataset_builder.group_size}")
     logger.info(f"Log path: {cfg.log_path}")
     if cfg.mode == "multi_turn":
-        logger.info(f"Refinement turns per trajectory (n): {cfg.n}")
-        logger.info(f"Parallel trajectories (m): {cfg.m}")
-        logger.info(f"Discount factor (gamma): {cfg.gamma}")
+        logger.info(f"Refinement turns per trajectory (n): {cfg.multiturn.n}")
+        logger.info(f"Parallel trajectories (m): {cfg.multiturn.m}")
+        logger.info(f"Discount factor (gamma): {cfg.multiturn.gamma}")
 
     # Run training
     asyncio.run(train_main(cfg))

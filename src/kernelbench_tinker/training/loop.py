@@ -43,6 +43,7 @@ from tinker_cookbook.rl.types import (
 from tinker_cookbook.utils import ml_log
 from tinker_cookbook.utils.misc_utils import timed
 
+from kernelbench_tinker.config.configs import MultiTurnConfig
 from kernelbench_tinker.envs.kernelbench_env import KernelBenchDatasetBuilder
 from kernelbench_tinker.envs.multiturn_kernelbench_env import (
     MultiTurnKernelBenchDatasetBuilder,
@@ -97,9 +98,7 @@ class TrainingConfig:
     mode: str = "single_turn"
 
     # Multi-turn specific config
-    gamma: float = 0.4  # Discount factor for multi-turn returns
-    n: int = 4  # Refinement turns per trajectory
-    m: int = 16  # Parallel trajectories per problem
+    multiturn: MultiTurnConfig = chz.field(default_factory=MultiTurnConfig)
 
     # Training configuration
     num_substeps: int = 1  # Optimizer steps per batch
@@ -589,9 +588,9 @@ async def run_training_loop(
     is_multiturn = cfg.mode == "multi_turn"
     if is_multiturn:
         logger.info("Running in MULTI-TURN mode")
-        logger.info(f"  n (refinement turns per trajectory): {cfg.n}")
-        logger.info(f"  m (parallel trajectories): {cfg.m}")
-        logger.info(f"  gamma (discount): {cfg.gamma}")
+        logger.info(f"  n (refinement turns per trajectory): {cfg.multiturn.n}")
+        logger.info(f"  m (parallel trajectories): {cfg.multiturn.m}")
+        logger.info(f"  gamma (discount factor): {cfg.multiturn.gamma}")
 
     # Setup logging
     os.makedirs(cfg.log_path, exist_ok=True)
@@ -685,10 +684,12 @@ async def run_training_loop(
                 backend=cfg.dataset_builder.backend,
                 dataset_src=cfg.dataset_builder.dataset_src,
                 batch_size=cfg.dataset_builder.batch_size,
-                group_size=cfg.m,
+                group_size=cfg.multiturn.m,
                 num_epochs=cfg.dataset_builder.num_epochs,
                 shuffle=cfg.dataset_builder.shuffle,
-                max_turns=cfg.n,
+                max_turns=cfg.multiturn.n,
+                early_stop_on_correct=cfg.multiturn.early_stop_on_correct,
+                speedup_threshold=cfg.multiturn.speedup_threshold,
                 num_correct_trials=cfg.dataset_builder.num_correct_trials,
                 measure_performance=cfg.dataset_builder.measure_performance,
                 num_perf_trials=cfg.dataset_builder.num_perf_trials,
@@ -782,7 +783,7 @@ async def run_training_loop(
 
             with timed("discount_returns", metrics):
                 apply_discounted_returns_to_trajectories(
-                    trajectory_groups, env_groups, gamma=cfg.gamma
+                    trajectory_groups, env_groups, gamma=cfg.multiturn.gamma
                 )
 
             traj_metrics = compute_multiturn_trajectory_metrics(
