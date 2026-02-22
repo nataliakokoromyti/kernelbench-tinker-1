@@ -45,10 +45,7 @@ from tinker_cookbook.utils.misc_utils import timed
 
 from kernelbench_tinker.config.configs import MultiTurnConfig
 from kernelbench_tinker.envs.kernelbench_env import KernelBenchDatasetBuilder
-from kernelbench_tinker.envs.multiturn_kernelbench_env import (
-    MultiTurnKernelBenchDatasetBuilder,
-    MultiTurnKernelBenchEnv,
-)
+from kernelbench_tinker.envs.multiturn_kernelbench_env import MultiTurnKernelBenchEnv
 from kernelbench_tinker.training.models import get_adam_params
 from kernelbench_tinker.training.reward import compute_discounted_returns
 from kernelbench_tinker.training.tensorboard_logger import (
@@ -86,13 +83,10 @@ class TrainingConfig:
     max_tokens: int = 4096
     temperature: float = 1.0
 
-    # Dataset configuration (single-turn default)
+    # Dataset configuration
     dataset_builder: KernelBenchDatasetBuilder = chz.field(
         default_factory=KernelBenchDatasetBuilder
     )
-
-    # Multi-turn dataset configuration (optional, used when mode="multi_turn")
-    multiturn_dataset_builder: MultiTurnKernelBenchDatasetBuilder | None = None
 
     # Training mode: "single_turn" or "multi_turn"
     mode: str = "single_turn"
@@ -676,50 +670,18 @@ async def run_training_loop(
 
     # Create dataset (pass tokenizer for renderer)
     if is_multiturn:
-        if cfg.multiturn_dataset_builder is not None:
-            dataset_builder = cfg.multiturn_dataset_builder
-        else:
-            # Build multi-turn dataset from single-turn config
-            dataset_builder = MultiTurnKernelBenchDatasetBuilder(
-                level=cfg.dataset_builder.level,
-                start_problem=cfg.dataset_builder.start_problem,
-                end_problem=cfg.dataset_builder.end_problem,
-                backend=cfg.dataset_builder.backend,
-                dataset_src=cfg.dataset_builder.dataset_src,
-                batch_size=cfg.dataset_builder.batch_size,
-                group_size=cfg.multiturn.m,
-                num_epochs=cfg.dataset_builder.num_epochs,
-                shuffle=cfg.dataset_builder.shuffle,
-                max_turns=cfg.multiturn.n,
-                early_stop_on_correct=cfg.multiturn.early_stop_on_correct,
-                speedup_threshold=cfg.multiturn.speedup_threshold,
-                num_correct_trials=cfg.dataset_builder.num_correct_trials,
-                measure_performance=cfg.dataset_builder.measure_performance,
-                num_perf_trials=cfg.dataset_builder.num_perf_trials,
-                timing_method=cfg.dataset_builder.timing_method,
-                precision=cfg.dataset_builder.precision,
-                check_for_excessive_speedup=cfg.dataset_builder.check_for_excessive_speedup,
-                excessive_speedup_threshold=cfg.dataset_builder.excessive_speedup_threshold,
-                reward_format_weight=cfg.dataset_builder.reward_format_weight,
-                reward_compile_weight=cfg.dataset_builder.reward_compile_weight,
-                reward_correctness_weight=cfg.dataset_builder.reward_correctness_weight,
-                reward_speed_weight=cfg.dataset_builder.reward_speed_weight,
-                reward_length_weight=cfg.dataset_builder.reward_length_weight,
-                reward_enable_static_checker=cfg.dataset_builder.reward_enable_static_checker,
-                reward_static_checker_backend=cfg.dataset_builder.reward_static_checker_backend,
-                reward_static_checker_precision=cfg.dataset_builder.reward_static_checker_precision,
-                reward_static_checker_strict=cfg.dataset_builder.reward_static_checker_strict,
-                reward_static_checker_warnings=cfg.dataset_builder.reward_static_checker_warnings,
-                renderer_name=cfg.dataset_builder.renderer_name,
-                test_fraction=cfg.dataset_builder.test_fraction,
-                prompt_option=cfg.dataset_builder.prompt_option,
-                prompt_precision=cfg.dataset_builder.prompt_precision,
-                prompt_include_hardware=cfg.dataset_builder.prompt_include_hardware,
-                prompt_gpu_name=cfg.dataset_builder.prompt_gpu_name,
-                modal_gpu_type=cfg.dataset_builder.modal_gpu_type,
-                modal_timeout=cfg.dataset_builder.modal_timeout,
-            )
-        logger.info("Using MultiTurnKernelBenchDatasetBuilder")
+        # Copy base dataset_builder with multi-turn overrides from MultiTurnConfig
+        import dataclasses as _dc
+        _base = {f.name: getattr(cfg.dataset_builder, f.name)
+                 for f in _dc.fields(cfg.dataset_builder)}
+        _base.update(
+            max_turns=cfg.multiturn.n,
+            group_size=cfg.multiturn.m,
+            early_stop_on_correct=cfg.multiturn.early_stop_on_correct,
+            speedup_threshold=cfg.multiturn.speedup_threshold,
+        )
+        dataset_builder = KernelBenchDatasetBuilder(**_base)
+        logger.info("Using KernelBenchDatasetBuilder (multi-turn, max_turns=%d)", cfg.multiturn.n)
     else:
         dataset_builder = cfg.dataset_builder
         logger.info("Using KernelBenchDatasetBuilder (single-turn)")

@@ -436,6 +436,11 @@ class KernelBenchDatasetBuilder(RLDatasetBuilder):
     num_epochs: int = 1
     shuffle: bool = True
 
+    # Multi-turn configuration (active when max_turns > 1)
+    max_turns: int = 1
+    early_stop_on_correct: bool = False
+    speedup_threshold: float | None = None
+
     # Evaluation configuration
     num_correct_trials: int = 5
     measure_performance: bool = False
@@ -556,8 +561,23 @@ class KernelBenchDatasetBuilder(RLDatasetBuilder):
         set_modal_evaluator(ModalKernelEvaluator(modal_config))
         logger.info(f"Modal evaluator configured: GPU={eval_config.modal_gpu_type}, timeout={eval_config.modal_timeout}s")
 
+        # Select dataset class based on single-turn vs multi-turn
+        if self.max_turns > 1:
+            from kernelbench_tinker.envs.multiturn_kernelbench_env import (
+                MultiTurnKernelBenchRLDataset,
+            )
+            DatasetClass = MultiTurnKernelBenchRLDataset
+            extra_kwargs = dict(
+                max_turns=self.max_turns,
+                early_stop_on_correct=self.early_stop_on_correct,
+                speedup_threshold=self.speedup_threshold,
+            )
+        else:
+            DatasetClass = KernelBenchRLDataset
+            extra_kwargs = {}
+
         # Create train dataset
-        train_dataset = KernelBenchRLDataset(
+        train_dataset = DatasetClass(
             problems=train_problems,
             renderer=renderer,
             batch_size=self.batch_size,
@@ -566,12 +586,13 @@ class KernelBenchDatasetBuilder(RLDatasetBuilder):
             reward_config=reward_config,
             shuffle=self.shuffle,
             num_epochs=self.num_epochs,
+            **extra_kwargs,
         )
 
         # Create test dataset if we have test problems
         test_dataset = None
         if test_problems:
-            test_dataset = KernelBenchRLDataset(
+            test_dataset = DatasetClass(
                 problems=test_problems,
                 renderer=renderer,
                 batch_size=self.batch_size,
@@ -580,6 +601,7 @@ class KernelBenchDatasetBuilder(RLDatasetBuilder):
                 reward_config=reward_config,
                 shuffle=False,
                 num_epochs=1,
+                **extra_kwargs,
             )
 
         return train_dataset, test_dataset

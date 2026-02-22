@@ -14,7 +14,6 @@ import time
 from dataclasses import dataclass, field
 from typing import Sequence
 
-import chz
 import tinker
 from tinker_cookbook import renderers
 from tinker_cookbook.completers import StopCondition
@@ -25,7 +24,6 @@ from tinker_cookbook.rl.types import (
     Metrics,
     Observation,
     RLDataset,
-    RLDatasetBuilder,
     StepResult,
     Trajectory,
 )
@@ -37,7 +35,6 @@ from kernelbench_tinker.envs.kernelbench_client import (
     KernelEvalResult,
     ParsedResponse,
     evaluate_kernel_async,
-    get_problem_ids,
     parse_structured_response,
 )
 from kernelbench_tinker.training.reward import (
@@ -665,177 +662,3 @@ class MultiTurnKernelBenchRLDataset(RLDataset):
         return builders
 
 
-@chz.chz
-class MultiTurnKernelBenchDatasetBuilder(RLDatasetBuilder):
-    """Builder for multi-turn KernelBench RL datasets."""
-
-    # Problem selection
-    level: int = 1
-    start_problem: int | None = None
-    end_problem: int | None = None
-    backend: str = "triton"
-    dataset_src: str = "huggingface"
-
-    # Training configuration
-    batch_size: int = 4
-    group_size: int = 4
-    num_epochs: int = 1
-    shuffle: bool = True
-
-    # Multi-turn configuration
-    max_turns: int = 4
-    early_stop_on_correct: bool = False
-    speedup_threshold: float | None = None
-
-    # Evaluation configuration
-    num_correct_trials: int = 5
-    measure_performance: bool = False
-    num_perf_trials: int = 100
-    timing_method: str = "cuda_event"
-    precision: str = "fp32"
-    check_for_excessive_speedup: bool = True
-    excessive_speedup_threshold: float = 10.0
-
-    # Reward configuration
-    reward_format_weight: float = 0.0
-    reward_compile_weight: float = 0.0
-    reward_correctness_weight: float = 0.3
-    reward_speed_weight: float = 1.0
-    reward_length_weight: float = 0.0
-
-    # Reward hacking detection (static checker)
-    reward_enable_static_checker: bool = True
-    reward_static_checker_backend: str = "triton"
-    reward_static_checker_precision: str = "fp32"
-    reward_static_checker_strict: list[str] | None = None
-    reward_static_checker_warnings: list[str] | None = None
-
-    # Renderer
-    renderer_name: str = "qwen3"
-
-    # Test split
-    test_fraction: float = 0.1
-
-    # Prompt configuration
-    prompt_option: str = "one_shot"
-    prompt_precision: str | None = None
-    prompt_include_hardware: bool = False
-    prompt_gpu_name: str | None = None
-
-    # Modal configuration
-    modal_gpu_type: str = "A100"
-    modal_timeout: float = 120.0
-
-    async def __call__(
-        self, tokenizer=None
-    ) -> tuple[RLDataset, RLDataset | None]:
-        problem_ids = get_problem_ids(
-            self.level,
-            start=self.start_problem,
-            end=self.end_problem,
-            dataset_src=self.dataset_src,
-        )
-
-        all_problems = [
-            KernelBenchProblem(
-                level=self.level,
-                problem_id=pid,
-                backend=self.backend,
-                dataset_src=self.dataset_src,
-                prompt_option=self.prompt_option,
-                prompt_precision=self.prompt_precision or self.precision,
-                prompt_include_hardware=self.prompt_include_hardware,
-                prompt_gpu_name=self.prompt_gpu_name
-                or (self.modal_gpu_type if self.prompt_include_hardware else None),
-            )
-            for pid in problem_ids
-        ]
-
-        if self.test_fraction > 0 and len(all_problems) > 1:
-            n_test = max(1, int(len(all_problems) * self.test_fraction))
-            train_problems = all_problems[:-n_test]
-            test_problems = all_problems[-n_test:]
-        else:
-            train_problems = all_problems
-            test_problems = None
-
-        renderer = renderers.get_renderer(self.renderer_name, tokenizer)
-
-        eval_config = EvalConfig(
-            num_correct_trials=self.num_correct_trials,
-            measure_performance=self.measure_performance,
-            num_perf_trials=self.num_perf_trials,
-            timing_method=self.timing_method,
-            precision=self.precision,
-            check_for_excessive_speedup=self.check_for_excessive_speedup,
-            excessive_speedup_threshold=self.excessive_speedup_threshold,
-            modal_gpu_type=self.modal_gpu_type,
-            modal_timeout=self.modal_timeout,
-        )
-
-        reward_config = RewardConfig(
-            format_weight=self.reward_format_weight,
-            compile_weight=self.reward_compile_weight,
-            correctness_weight=self.reward_correctness_weight,
-            speed_weight=self.reward_speed_weight,
-            length_weight=self.reward_length_weight,
-            enable_static_checker=self.reward_enable_static_checker,
-            static_checker_backend=(
-                self.reward_static_checker_backend or self.backend
-            ),
-            static_checker_precision=(
-                self.reward_static_checker_precision or self.precision
-            ),
-            static_checker_strict=self.reward_static_checker_strict,
-            static_checker_warnings=self.reward_static_checker_warnings,
-        )
-
-        from kernelbench_tinker.modal.evaluator import (
-            ModalEvaluatorConfig,
-            ModalKernelEvaluator,
-            set_modal_evaluator,
-        )
-
-        modal_config = ModalEvaluatorConfig(
-            enabled=True,
-            gpu_type=eval_config.modal_gpu_type,
-            timeout=int(eval_config.modal_timeout),
-        )
-        set_modal_evaluator(ModalKernelEvaluator(modal_config))
-        logger.info(
-            "Modal evaluator configured: GPU=%s, timeout=%ss",
-            eval_config.modal_gpu_type,
-            eval_config.modal_timeout,
-        )
-
-        train_dataset = MultiTurnKernelBenchRLDataset(
-            problems=train_problems,
-            renderer=renderer,
-            batch_size=self.batch_size,
-            group_size=self.group_size,
-            max_turns=self.max_turns,
-            eval_config=eval_config,
-            reward_config=reward_config,
-            early_stop_on_correct=self.early_stop_on_correct,
-            speedup_threshold=self.speedup_threshold,
-            shuffle=self.shuffle,
-            num_epochs=self.num_epochs,
-        )
-
-        test_dataset = None
-        if test_problems:
-            test_dataset = MultiTurnKernelBenchRLDataset(
-                problems=test_problems,
-                renderer=renderer,
-                batch_size=self.batch_size,
-                group_size=self.group_size,
-                max_turns=self.max_turns,
-                eval_config=eval_config,
-                reward_config=reward_config,
-                early_stop_on_correct=self.early_stop_on_correct,
-                speedup_threshold=self.speedup_threshold,
-                shuffle=False,
-                num_epochs=1,
-            )
-
-        return train_dataset, test_dataset
