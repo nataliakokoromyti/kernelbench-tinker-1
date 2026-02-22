@@ -172,8 +172,15 @@ async def do_group_rollout_with_envs(
     """
     Perform rollouts and return both trajectory group and env references.
 
-    For multi-turn mode, we need the env objects to read per-step scores
-    for discounted return computation.
+    Workaround: tinker_cookbook.rl.rollouts.do_group_rollout creates envs
+    internally but does not return them.  Multi-turn training needs the env
+    objects after rollouts to read per-step scores (env.get_step_scores())
+    for discounted return computation, so we replicate the rollout logic
+    here to retain the env references.
+
+    TODO(upstream): propose adding an optional `return_envs` flag (or a
+    separate do_group_rollout_with_envs) to tinker-cookbook so we can
+    drop this reimplementation.
     """
     policy = TinkerTokenCompleter(
         sampling_client,
