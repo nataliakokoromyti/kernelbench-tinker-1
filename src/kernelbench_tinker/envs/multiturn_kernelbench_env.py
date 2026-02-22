@@ -51,6 +51,7 @@ logger = logging.getLogger(__name__)
 
 # Limits for feedback content included in refinement prompts
 MAX_KERNEL_HISTORY_LEN = 2000
+MAX_HISTORY_CONTEXT_LEN = 8000
 MAX_ERROR_LEN = 800
 MAX_ERROR_LINES = 10
 
@@ -157,8 +158,7 @@ class MultiTurnState:
     backend: str
     turn_idx: int
     max_turns: int
-    last_kernel: str | None
-    last_eval: KernelEvalResult | None
+    history: list[dict]  # Per-turn: {kernel, cot_summary, feedback, score}
     step_scores: list[float]
     done: bool
     success: bool
@@ -184,27 +184,11 @@ MULTITURN_SYSTEM_PROMPT = (
     "class ModelNew(nn.Module):\n"
     "    ...\n"
     "```\n"
-    "</KERNEL>"
+    "</KERNEL>\n\n"
+    "<SUMMARY>\n"
+    "2-3 sentence summary of your reasoning and approach.\n"
+    "</SUMMARY>"
 )
-
-
-REFINEMENT_TEMPLATE = (
-    "\n## Previous Attempt (Turn {turn})\n\n"
-    "```python\n{previous_kernel}\n```\n\n"
-    "## Evaluation Feedback\n"
-    "- **Status**: {error_category}\n"
-    "- **Compiled**: {compiled}\n"
-    "- **Tests Passed**: {tests_passed}/{tests_total}\n"
-    "{speedup_line}\n\n"
-    "{error_section}\n\n"
-    "## Instructions\n\n"
-    "{guidance}\n\n"
-    "Keep what works. Do not change the function signature unless necessary. "
-    "Do not use PyTorch APIs for the core computation.\n"
-)
-
-
-ERROR_SECTION_TEMPLATE = "### Error Details\n```\n{error_text}\n```\n"
 
 
 # ---------------------------------------------------------------------------
@@ -269,62 +253,89 @@ class MultiTurnKernelBenchEnv(Env):
         messages.append({"role": "user", "content": self.problem.prompt})
         return messages
 
+    def _format_turn_feedback(self, eval_result: KernelEvalResult) -> str:
+        """Format evaluation result into a feedback string for history."""
+        error_category = _categorize_error(eval_result)
+        display_names = {
+            "format_error": "FORMAT ERROR",
+            "compilation_error": "COMPILATION ERROR",
+            "runtime_error": "RUNTIME ERROR",
+            "correctness_error": "CORRECTNESS ERROR",
+            "performance_warning": "CORRECT (slower than baseline)",
+            "success": "SUCCESS",
+        }
+
+        parts = [
+            f"- **Status**: {display_names.get(error_category, error_category.upper())}",
+            f"- **Compiled**: {'Yes' if eval_result['compiled'] else 'No'}",
+            f"- **Tests Passed**: {eval_result['tests_passed']}/{eval_result['tests_total']}",
+        ]
+
+        if eval_result.get("speedup") is not None:
+            parts.append(f"- **Speedup**: {eval_result['speedup']:.2f}x")
+
+        if eval_result.get("error_message") and error_category != "success":
+            error_text = _extract_key_error(eval_result["error_message"])
+            if error_text:
+                parts.append(f"\n```\n{error_text}\n```")
+
+        guidance = _ERROR_GUIDANCE.get(error_category)
+        if guidance:
+            parts.append(f"\n**Hint**: {guidance}")
+
+        return "\n".join(parts)
+
     def _build_refinement_messages(self) -> list[renderers.Message]:
-        """Build a fresh prompt with the original problem + feedback from last attempt."""
+        """Build a fresh prompt with the original problem + history of attempts.
+
+        Each history entry shows the kernel's CoT summary, the code, and
+        evaluation feedback.  Oldest entries are dropped first when the
+        combined history exceeds MAX_HISTORY_CONTEXT_LEN characters.
+        """
         messages: list[renderers.Message] = []
         messages.append({"role": "system", "content": self._system_prompt})
 
         user_parts = [self.problem.prompt]
 
-        if self.state.last_eval is not None and self.state.last_kernel is not None:
-            eval_result = self.state.last_eval
-            error_category = _categorize_error(eval_result)
-            display_names = {
-                "format_error": "FORMAT ERROR - Invalid code structure",
-                "compilation_error": "COMPILATION ERROR - Build failed",
-                "runtime_error": "RUNTIME ERROR - Crashed during execution",
-                "correctness_error": "CORRECTNESS ERROR - Wrong output",
-                "performance_warning": "CORRECT (but slower than baseline)",
-                "success": "SUCCESS",
-            }
-
-            speedup_line = ""
-            if eval_result.get("speedup") is not None:
-                speedup_line = f"- **Speedup**: {eval_result['speedup']:.2f}x"
-
-            error_section = ""
-            if eval_result.get("error_message") and error_category != "success":
-                error_text = _extract_key_error(eval_result["error_message"])
-                if error_text:
-                    error_section = ERROR_SECTION_TEMPLATE.format(
-                        error_text=error_text
+        if self.state.history:
+            # Format each turn's history entry
+            entries: list[str] = []
+            for i, entry in enumerate(self.state.history):
+                kernel_display = entry["kernel"]
+                if len(kernel_display) > MAX_KERNEL_HISTORY_LEN:
+                    kernel_display = (
+                        kernel_display[:MAX_KERNEL_HISTORY_LEN]
+                        + "\n# ... (truncated)"
                     )
 
-            guidance = _ERROR_GUIDANCE.get(
-                error_category, "Fix the issues and try again."
+                parts = [f"### Turn {i + 1}"]
+                if entry["cot_summary"]:
+                    parts.append(
+                        f"**Your reasoning**: {entry['cot_summary']}"
+                    )
+                parts.append(f"```python\n{kernel_display}\n```")
+                parts.append(entry["feedback"])
+                entries.append("\n\n".join(parts))
+
+            # Drop oldest entries first if total exceeds budget
+            total_len = sum(len(e) for e in entries)
+            while total_len > MAX_HISTORY_CONTEXT_LEN and len(entries) > 1:
+                total_len -= len(entries[0])
+                entries.pop(0)
+
+            user_parts.append(
+                "\n\n## Previous Attempts\n\n" + "\n\n---\n\n".join(entries)
             )
 
-            kernel_code = self.state.last_kernel
-            if len(kernel_code) > MAX_KERNEL_HISTORY_LEN:
-                kernel_code = (
-                    kernel_code[:MAX_KERNEL_HISTORY_LEN] + "\n# ... (truncated)"
-                )
-
-            refinement = REFINEMENT_TEMPLATE.format(
-                turn=self.state.turn_idx,
-                previous_kernel=kernel_code,
-                error_category=display_names.get(
-                    error_category, error_category.upper()
-                ),
-                compiled="Yes" if eval_result["compiled"] else "No",
-                tests_passed=eval_result["tests_passed"],
-                tests_total=eval_result["tests_total"],
-                speedup_line=speedup_line,
-                error_section=error_section,
-                guidance=guidance,
+            user_parts.append(
+                "\n\n## Instructions\n\n"
+                "Fix the issues from your most recent attempt. "
+                "Keep what works. Do not change the function signature "
+                "unless necessary. Do not use PyTorch APIs for the core "
+                "computation.\n\n"
+                "Remember: respond with <KERNEL>...</KERNEL> "
+                "then <SUMMARY>...</SUMMARY>."
             )
-            refinement += "\nRemember: respond using <KERNEL>...</KERNEL>."
-            user_parts.append(refinement)
 
         messages.append({"role": "user", "content": "\n".join(user_parts)})
         return messages
@@ -336,8 +347,7 @@ class MultiTurnKernelBenchEnv(Env):
             backend=self.problem.backend,
             turn_idx=0,
             max_turns=self.max_turns,
-            last_kernel=None,
-            last_eval=None,
+            history=[],
             step_scores=[],
             done=False,
             success=False,
@@ -357,7 +367,6 @@ class MultiTurnKernelBenchEnv(Env):
 
         parsed = parse_structured_response(response_text)
         kernel_code = parsed.kernel
-        state.last_kernel = kernel_code
         format_ok = parsed.format_ok
 
         # Evaluate on Modal
@@ -379,7 +388,6 @@ class MultiTurnKernelBenchEnv(Env):
             timeout=cfg.modal_timeout,
         )
         eval_time = time.perf_counter() - eval_start
-        state.last_eval = eval_result
 
         # Per-step reward
         step_score = compute_reward(
@@ -389,6 +397,15 @@ class MultiTurnKernelBenchEnv(Env):
             backend=state.backend,
         )
         state.step_scores.append(step_score)
+
+        # Build feedback and store in history
+        feedback = self._format_turn_feedback(eval_result)
+        state.history.append({
+            "kernel": kernel_code,
+            "cot_summary": parsed.cot_summary,
+            "feedback": feedback,
+            "score": step_score,
+        })
 
         # Log
         logtree.log_text(
@@ -500,6 +517,7 @@ class MultiTurnKernelBenchEnv(Env):
             "response": {
                 "raw": parsed.raw,
                 "kernel": parsed.kernel,
+                "cot_summary": parsed.cot_summary,
                 "format_ok": format_ok,
             },
             "eval_result": eval_result,

@@ -33,13 +33,20 @@ KERNEL_BLOCK_SIMPLE_PATTERN = re.compile(
     re.DOTALL | re.IGNORECASE
 )
 
+# Summary block pattern - reasoning summary inside <SUMMARY>...</SUMMARY>
+SUMMARY_BLOCK_PATTERN = re.compile(
+    r"<SUMMARY>(.*?)</SUMMARY>",
+    re.DOTALL | re.IGNORECASE
+)
+
 
 @dataclass
 class ParsedResponse:
     """Parsed model response with kernel blocks."""
-    kernel: str   # Kernel code (from <KERNEL> block or extracted code block)
-    raw: str      # Original raw response
-    format_ok: bool  # Whether we successfully extracted kernel code
+    kernel: str        # Kernel code (from <KERNEL> block or extracted code block)
+    cot_summary: str   # Reasoning summary (from <SUMMARY> block)
+    raw: str           # Original raw response
+    format_ok: bool    # Whether we successfully extracted kernel code
 
 
 def parse_structured_response(text: str) -> ParsedResponse:
@@ -94,8 +101,15 @@ def parse_structured_response(text: str) -> ParsedResponse:
     # Check if we got valid kernel code
     format_ok = bool(kernel) and ("class ModelNew" in kernel or "def forward" in kernel)
 
+    # Extract CoT summary from <SUMMARY> block
+    cot_summary = ""
+    summary_match = SUMMARY_BLOCK_PATTERN.search(text)
+    if summary_match:
+        cot_summary = summary_match.group(1).strip()
+
     return ParsedResponse(
         kernel=kernel,
+        cot_summary=cot_summary,
         raw=raw,
         format_ok=format_ok,
     )
