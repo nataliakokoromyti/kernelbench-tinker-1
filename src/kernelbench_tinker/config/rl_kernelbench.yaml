@@ -53,6 +53,12 @@ warmup_ratio: 0.03                     # Linear LR warmup fraction
 clip_epsilon_low: 0.2                  # PPO clip lower bound
 clip_epsilon_high: 0.28                # PPO clip upper bound (Clip-High)
 
+# Constant length normalization (Kevin paper Section 6.1 / Dr. GRPO).
+# Tinker sums per-token losses; this scales advantages by 1/C so
+# gradient magnitude is proportional to |o_i|/C, not |o_i|.
+# Set to max_tokens for the Kevin paper's approach.  0 = disabled.
+constant_length_norm: 16384
+
 # KL Regularization (optional)
 kl_penalty_coef: 0.0
 kl_discount_factor: 0.0

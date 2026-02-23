@@ -120,6 +120,12 @@ class TrainingConfig:
     clip_epsilon_low: float = 0.0  # PPO clip lower bound (0.0 = use server default)
     clip_epsilon_high: float = 0.0  # PPO clip upper bound (Clip-High: 0.28)
 
+    # Constant length normalization (Kevin paper Section 6.1, ref [25] Dr. GRPO).
+    # Tinker sums per-token losses (no 1/|o_i| division), so we scale
+    # advantages by 1/constant_length_norm to get uniform gradient magnitude
+    # regardless of response length.  Set to 0 to disable.
+    constant_length_norm: int = 0  # e.g. max_tokens (16384)
+
     # KL regularization
     kl_penalty_coef: float = 0.0
     kl_discount_factor: float = 0.0
@@ -876,6 +882,15 @@ async def run_training_loop(
                 advantages = compute_multiturn_advantages(trajectory_groups)
             else:
                 advantages = compute_advantages(trajectory_groups)
+
+            # Constant length normalization (Dr. GRPO / Kevin Section 6.1).
+            # Tinker sums per-token losses, so scaling advantages by
+            # 1/C gives each response gradient magnitude proportional to
+            # |o_i|/C instead of |o_i|.
+            if cfg.constant_length_norm > 0:
+                for i in range(len(advantages)):
+                    advantages[i] = advantages[i] / cfg.constant_length_norm
+
             data, _metadata = assemble_training_data(trajectory_groups, advantages)
 
         # Compute effective learning rate (linear warmup)
