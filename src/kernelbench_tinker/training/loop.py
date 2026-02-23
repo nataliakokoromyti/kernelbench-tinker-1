@@ -98,6 +98,12 @@ class TrainingConfig:
     max_tokens: int = 4096
     temperature: float = 1.0
 
+    # Response length extension (Kevin paper Section 4.4):
+    # Extend max_tokens mid-training as the model attempts more sophisticated
+    # solutions.  Set to 0 to disable.
+    max_tokens_extended: int = 0  # e.g. 22528 (22K) as in Kevin
+    max_tokens_extend_after_step: int = 0  # Step at which to switch
+
     # Dataset configuration
     dataset_builder: KernelBenchDatasetBuilder = chz.field(
         default_factory=KernelBenchDatasetBuilder
@@ -756,6 +762,19 @@ async def run_training_loop(
         # Get batch of env group builders
         env_group_builders = train_dataset.get_batch(batch_idx)
 
+        # Response length extension (Kevin paper Section 4.4)
+        effective_max_tokens = cfg.max_tokens
+        if (
+            cfg.max_tokens_extended > 0
+            and batch_idx >= cfg.max_tokens_extend_after_step
+        ):
+            effective_max_tokens = cfg.max_tokens_extended
+            if batch_idx == cfg.max_tokens_extend_after_step:
+                logger.info(
+                    f"Extending max_tokens from {cfg.max_tokens} to "
+                    f"{cfg.max_tokens_extended} at step {batch_idx}"
+                )
+
         if is_multiturn:
             # ----- Multi-turn rollouts -----
             with timed("rollout", metrics):
@@ -765,7 +784,7 @@ async def run_training_loop(
                             do_group_rollout_with_envs(
                                 sampling_client,
                                 builder,
-                                max_tokens=cfg.max_tokens,
+                                max_tokens=effective_max_tokens,
                                 temperature=cfg.temperature,
                                 do_remove_constant_reward_groups=cfg.remove_constant_reward_groups,
                             )
@@ -821,7 +840,7 @@ async def run_training_loop(
                             do_group_rollout_and_filter(
                                 sampling_client,
                                 builder,
-                                max_tokens=cfg.max_tokens,
+                                max_tokens=effective_max_tokens,
                                 temperature=cfg.temperature,
                                 do_remove_constant_reward_groups=cfg.remove_constant_reward_groups,
                             )

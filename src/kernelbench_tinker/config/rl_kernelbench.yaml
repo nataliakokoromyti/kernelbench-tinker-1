@@ -26,6 +26,12 @@ learning_rate: 0.000002  # 2e-6 as explicit float
 max_tokens: 16384
 temperature: 0.9
 
+# Response length extension (Kevin paper Section 4.4):
+# Extend max_tokens mid-training as the model attempts more sophisticated
+# solutions.  Kevin extends from 16K to 22K at step 30.
+max_tokens_extended: 22528          # 22K tokens (0 = disabled)
+max_tokens_extend_after_step: 30    # Step at which to switch
+
 # =============================================================================
 # Multi-turn Configuration
 # =============================================================================
