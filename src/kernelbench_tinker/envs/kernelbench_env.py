@@ -53,8 +53,7 @@ _BASE_SYSTEM_PROMPT = """\
 You are an expert GPU kernel developer. Your task is to optimize PyTorch \
 operations by writing efficient custom {backend} kernels.
 
-When given a PyTorch model, write an optimized kernel implementation.\
-{refinement_instruction}
+When given a PyTorch model, write an optimized kernel implementation.
 
 Your solution must:
 - Be a drop-in replacement as a class named `ModelNew`
@@ -69,26 +68,38 @@ You MUST respond in exactly this format:
 class ModelNew(nn.Module):
     ...
 ```
-</KERNEL>{summary_block}"""
+</KERNEL>"""
 
-_REFINEMENT_INSTRUCTION = (
-    " If a previous attempt failed, fix the errors based on the feedback provided."
-)
+_MULTITURN_SYSTEM_PROMPT = """\
+You are an expert GPU kernel developer. Your task is to optimize PyTorch \
+operations by writing efficient custom {backend} kernels. Do not \
+use torch.nn (except for Parameter, containers, and init). The input and \
+output have to be on CUDA device. Your answer must be the complete new \
+architecture (no testing code, no other code): it will be evaluated and you \
+will be given feedback on its correctness and speedup so you can keep \
+iterating, trying to maximize the speedup. After your answer, summarize \
+your changes in a few sentences.
 
-_SUMMARY_BLOCK = """
+You MUST respond in exactly this format:
+
+<KERNEL>
+```python
+# Your complete optimized implementation here
+class ModelNew(nn.Module):
+    ...
+```
+</KERNEL>
 
 <SUMMARY>
-2-3 sentence summary of your reasoning and approach.
+Summarize your changes in a few sentences.
 </SUMMARY>"""
 
 
 def build_system_prompt(backend: str, multiturn: bool = False) -> str:
     """Build the system prompt, optionally including multi-turn instructions."""
-    return _BASE_SYSTEM_PROMPT.format(
-        backend=backend.upper(),
-        refinement_instruction=_REFINEMENT_INSTRUCTION if multiturn else "",
-        summary_block=_SUMMARY_BLOCK if multiturn else "",
-    )
+    if multiturn:
+        return _MULTITURN_SYSTEM_PROMPT.format(backend=backend.upper())
+    return _BASE_SYSTEM_PROMPT.format(backend=backend.upper())
 
 
 class KernelBenchEnv(Env):

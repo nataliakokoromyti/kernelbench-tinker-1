@@ -52,28 +52,45 @@ MAX_ERROR_LEN = 800
 
 
 def build_eval_feedback(eval_result: KernelEvalResult) -> str:
-    """Build a one-line feedback string from an evaluation result."""
+    """Build a feedback string from an evaluation result.
+
+    Follows the exact format from Kevin (arXiv:2507.11948v1), Section 4 / Appendix D.
+    """
     if not eval_result["format_ok"]:
-        return "Your previous answer failed to be parsed."
+        error_msg = (eval_result.get("error_message") or "")[:MAX_ERROR_LEN]
+        if error_msg:
+            return (
+                "Your previous answer failed to be parsed due to not adhering "
+                f"to the desired formatting. Here is the error message: {error_msg}"
+            )
+        return (
+            "Your previous answer failed to be parsed due to not adhering "
+            "to the desired formatting."
+        )
 
     error_msg = (eval_result.get("error_message") or "")[:MAX_ERROR_LEN]
 
     if not eval_result["compiled"]:
-        return f"Your previous answer failed to compile. Error: {error_msg}"
+        return (
+            "Your previous answer failed to compile. "
+            f"Here is the error message: {error_msg}"
+        )
 
     if not eval_result["correctness"]:
-        tests_passed = eval_result.get("tests_passed", 0)
-        if tests_passed > 0:
-            # Some tests passed — kernel runs but produces wrong output
-            return f"Your previous answer was incorrect. Passed {tests_passed}/{eval_result.get('tests_total', 0)} tests."
         if error_msg:
-            # Zero tests passed with an error — runtime crash
-            return f"Your previous answer had a runtime error. Error: {error_msg}"
+            # Runtime crash — kernel compiled but threw an error
+            return (
+                "Your previous answer compiled successfully but had runtime "
+                f"errors. Here is the error message: {error_msg}"
+            )
         return "Your previous answer was incorrect."
 
     speedup = eval_result.get("speedup")
     if speedup is not None:
-        return f"Your previous answer was correct but can be made faster. Speedup: {speedup:.2f}x"
+        return (
+            "Your previous answer was correct but can be made faster. "
+            f"Here is the speedup you achieved relative to the baseline: {speedup:.2f}x"
+        )
     return "Your previous answer was correct but can be made faster."
 
 
@@ -162,9 +179,12 @@ class MultiTurnKernelBenchEnv(Env):
     def _build_refinement_messages(self) -> list[renderers.Message]:
         """Build a fresh prompt with the original problem + history of attempts.
 
-        Each history entry shows the kernel's CoT summary, the code, and
-        evaluation feedback.  Oldest entries are dropped first when the
-        combined history exceeds MAX_HISTORY_CONTEXT_LEN characters.
+        Follows the exact format from Kevin (arXiv:2507.11948v1), Appendix D:
+        the base prompt, then "Here are your previous attempts:", then for each
+        previous turn: the generated kernel, summarized CoT, and evaluation
+        feedback.  Oldest entries are dropped first when the combined history
+        exceeds MAX_HISTORY_CONTEXT_LEN characters.  Ends with "Restart your
+        reasoning process and generate new, complete code."
         """
         messages: list[renderers.Message] = []
         messages.append({"role": "system", "content": self._system_prompt})
@@ -172,7 +192,7 @@ class MultiTurnKernelBenchEnv(Env):
         user_parts = [self.problem.prompt]
 
         if self.state.history:
-            # Format each turn's history entry
+            # Format each turn's history entry (paper Appendix D format)
             entries: list[str] = []
             for i, entry in enumerate(self.state.history):
                 kernel_display = entry["kernel"]
@@ -182,12 +202,13 @@ class MultiTurnKernelBenchEnv(Env):
                         + "\n# ... (truncated)"
                     )
 
-                parts = [f"### Turn {i + 1}"]
-                if entry["cot_summary"]:
-                    parts.append(
-                        f"**Your reasoning**: {entry['cot_summary']}"
-                    )
+                parts: list[str] = []
+                # Previously generated kernel G[i]
                 parts.append(f"```python\n{kernel_display}\n```")
+                # Summary of CoT[i]
+                if entry["cot_summary"]:
+                    parts.append(entry["cot_summary"])
+                # Evaluation feedback
                 parts.append(entry["feedback"])
                 entries.append("\n\n".join(parts))
 
@@ -198,17 +219,13 @@ class MultiTurnKernelBenchEnv(Env):
                 entries.pop(0)
 
             user_parts.append(
-                "\n\n## Previous Attempts\n\n" + "\n\n---\n\n".join(entries)
+                "\n\nHere are your previous attempts:\n\n"
+                + "\n\n".join(entries)
             )
 
             user_parts.append(
-                "\n\n## Instructions\n\n"
-                "Fix the issues from your most recent attempt. "
-                "Keep what works. Do not change the function signature "
-                "unless necessary. Do not use PyTorch APIs for the core "
-                "computation.\n\n"
-                "Remember: respond with <KERNEL>...</KERNEL> "
-                "then <SUMMARY>...</SUMMARY>."
+                "\n\nRestart your reasoning process and generate new, "
+                "complete code."
             )
 
         messages.append({"role": "user", "content": "\n".join(user_parts)})
