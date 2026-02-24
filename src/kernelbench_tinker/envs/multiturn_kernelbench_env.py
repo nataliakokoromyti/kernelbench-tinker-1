@@ -176,15 +176,17 @@ class MultiTurnKernelBenchEnv(Env):
     def _build_refinement_messages(self) -> list[renderers.Message]:
         """Build a fresh prompt with the original problem + history of attempts.
 
-        Includes the base prompt, then "Here are your previous attempts:" with
-        each prior kernel, its summarized CoT, and evaluation feedback.  Oldest
-        entries are dropped first when the combined history exceeds
-        MAX_HISTORY_CONTEXT_LEN characters.
+        Uses the zero-shot prompt (no examples) on refinement turns to save
+        context tokens — the one-shot example is only needed on the first turn.
+        Includes "Here are your previous attempts:" with each prior kernel, its
+        summarized CoT, and evaluation feedback.  Oldest entries are dropped
+        first when the combined history exceeds MAX_HISTORY_CONTEXT_LEN
+        characters.
         """
         messages: list[renderers.Message] = []
         messages.append({"role": "system", "content": self._system_prompt})
 
-        user_parts = [self.problem.prompt]
+        user_parts = [self.problem.base_prompt]
 
         if self.state.history:
             # Format each turn's history entry (paper Appendix D format)

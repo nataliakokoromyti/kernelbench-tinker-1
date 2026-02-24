@@ -500,6 +500,7 @@ class KernelBenchProblem:
     prompt_gpu_name: str | None = None
 
     _prompt: str | None = field(default=None, repr=False)
+    _base_prompt: str | None = field(default=None, repr=False)
 
     @property
     def prompt(self) -> str:
@@ -516,4 +517,25 @@ class KernelBenchProblem:
                 gpu_name=self.prompt_gpu_name,
             )
         return self._prompt
+
+    @property
+    def base_prompt(self) -> str:
+        """Get the zero-shot prompt (no examples) for refinement turns.
+
+        In multi-turn training, the one-shot example is included only on the
+        first turn.  Subsequent turns use this stripped-down prompt to save
+        context tokens.
+        """
+        if self._base_prompt is None:
+            self._base_prompt = get_prompt_for_problem(
+                self.level,
+                self.problem_id,
+                self.backend,
+                option="zero_shot",
+                dataset_src=self.dataset_src,
+                precision=self.prompt_precision,
+                include_hardware=self.prompt_include_hardware,
+                gpu_name=self.prompt_gpu_name,
+            )
+        return self._base_prompt
 

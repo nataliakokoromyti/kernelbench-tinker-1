@@ -412,10 +412,9 @@ def compute_multiturn_trajectory_metrics(
         metrics["multiturn/compile_rate"] = float(np.mean(all_compiled))
     if all_correct:
         metrics["multiturn/correct_rate"] = float(np.mean(all_correct))
-    # Not Okay Ratio: fraction of steps that failed format, compile, or correctness
     if all_format_ok:
-        not_ok = [1.0 - (f and c and r) for f, c, r in zip(all_format_ok, all_compiled, all_correct)]
-        metrics["multiturn/not_okay_rate"] = float(np.mean(not_ok))
+        failures = [1.0 - (f and c and r) for f, c, r in zip(all_format_ok, all_compiled, all_correct)]
+        metrics["multiturn/failure_rate"] = float(np.mean(failures))
     if all_step_scores:
         metrics["multiturn/raw_score_mean"] = float(np.mean(all_step_scores))
     if all_success:
@@ -503,10 +502,9 @@ def compute_trajectory_metrics(
         metrics["kernel/compile_rate"] = float(np.mean(all_compiled))
     if all_correct:
         metrics["kernel/correct_rate"] = float(np.mean(all_correct))
-    # Not Okay Ratio: fraction of responses that failed format, compile, or correctness
     if all_format_ok:
-        not_ok = [1.0 - (f and c and r) for f, c, r in zip(all_format_ok, all_compiled, all_correct)]
-        metrics["kernel/not_okay_rate"] = float(np.mean(not_ok))
+        failures = [1.0 - (f and c and r) for f, c, r in zip(all_format_ok, all_compiled, all_correct)]
+        metrics["kernel/failure_rate"] = float(np.mean(failures))
     if all_eval_times:
         metrics["time/eval_mean"] = float(np.mean(all_eval_times))
         metrics["time/eval_max"] = float(np.max(all_eval_times))
