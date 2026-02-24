@@ -270,17 +270,24 @@ def check_reward_hacking(
             backend_check = static_checker.BACKEND_IMPL_CHECK[backend]
             if backend_check not in strict_checks:
                 strict_checks.append(backend_check)
-        # Promote all warning checks to strict (zero reward on any violation).
-        # This matches Kevin's training setup and ensures no reward hacking
-        # patterns slip through as mere warnings.
-        for check in static_checker.WARNING_CHECKS:
+        # Promote pytorch_wrap and torch_computation_ops to strict checks
+        # to match Kevin's training setup where all 4 checks zero the reward:
+        # 1. cuda_impl (__global__ + load_inline) - already strict via BACKEND_IMPL_CHECK
+        # 2. pytorch_wrap (disallowed nn.* patterns) - promoted from warning
+        # 3. torch_computation_ops (disallowed torch.* calls) - promoted from warning
+        # Kevin's code does NOT use the other checks (stream_injection,
+        # precision_downgrade, code_bypass, timing_event_patch, etc.)
+        for check in ("pytorch_wrap", "torch_computation_ops"):
             if check not in strict_checks:
                 strict_checks.append(check)
 
     warning_checks = config.static_checker_warnings
     if warning_checks is None:
-        # No warnings — everything is strict by default
-        warning_checks = []
+        # Default: all warning checks minus those promoted to strict
+        warning_checks = [
+            w for w in static_checker.WARNING_CHECKS
+            if w not in strict_checks
+        ]
     
     # Run static checker
     valid, errors, warnings = static_checker.validate_kernel_static(
