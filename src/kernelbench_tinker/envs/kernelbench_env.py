@@ -363,6 +363,8 @@ class KernelBenchRLDataset(RLDataset):
         system_prompt: str | None = None,
         early_stop_on_correct: bool = False,
         speedup_threshold: float | None = None,
+        tokenizer: object | None = None,
+        prompt_max_tokens: int | None = None,
     ):
         self.problems = problems
         self.renderer = renderer
@@ -376,6 +378,8 @@ class KernelBenchRLDataset(RLDataset):
         self.system_prompt = system_prompt
         self.early_stop_on_correct = early_stop_on_correct
         self.speedup_threshold = speedup_threshold
+        self.tokenizer = tokenizer
+        self.prompt_max_tokens = prompt_max_tokens
 
         # Create shuffled indices for each epoch
         self._problem_indices: list[int] = []
@@ -422,6 +426,8 @@ class KernelBenchRLDataset(RLDataset):
                     system_prompt=self.system_prompt,
                     early_stop_on_correct=self.early_stop_on_correct,
                     speedup_threshold=self.speedup_threshold,
+                    tokenizer=self.tokenizer,
+                    prompt_max_tokens=self.prompt_max_tokens,
                 )
             else:
                 builder = KernelBenchEnvGroupBuilder(
@@ -479,6 +485,11 @@ class KernelBenchDatasetBuilder(RLDatasetBuilder):
     reward_speed_weight: float = 1.0
     reward_length_weight: float = 0.0
 
+    # Reward clipping and speed cap
+    reward_clip_min: float | None = None
+    reward_clip_max: float | None = None
+    reward_speed_max_reward: float = 10.0  # Cap on speed reward component
+
     # Reward hacking detection (static checker)
     reward_enable_static_checker: bool = True
     reward_static_checker_backend: str = "triton"
@@ -497,6 +508,7 @@ class KernelBenchDatasetBuilder(RLDatasetBuilder):
     prompt_precision: str | None = None
     prompt_include_hardware: bool = False
     prompt_gpu_name: str | None = None
+    prompt_max_tokens: int | None = None  # Token budget for multi-turn history truncation
 
     # Modal configuration (isolated GPU evaluation)
     modal_gpu_type: str = "A100"  # GPU type to use on Modal
@@ -566,6 +578,9 @@ class KernelBenchDatasetBuilder(RLDatasetBuilder):
             correctness_weight=self.reward_correctness_weight,
             speed_weight=self.reward_speed_weight,
             length_weight=self.reward_length_weight,
+            speed_max_reward=self.reward_speed_max_reward,
+            reward_clip_min=self.reward_clip_min,
+            reward_clip_max=self.reward_clip_max,
             enable_static_checker=self.reward_enable_static_checker,
             static_checker_backend=self.reward_static_checker_backend or self.backend,
             static_checker_precision=self.reward_static_checker_precision or self.precision,
@@ -596,6 +611,8 @@ class KernelBenchDatasetBuilder(RLDatasetBuilder):
             max_turns=self.max_turns,
             early_stop_on_correct=self.early_stop_on_correct,
             speedup_threshold=self.speedup_threshold,
+            tokenizer=tokenizer,
+            prompt_max_tokens=self.prompt_max_tokens,
         )
 
         # Create test dataset if we have test problems
@@ -613,6 +630,8 @@ class KernelBenchDatasetBuilder(RLDatasetBuilder):
                 max_turns=self.max_turns,
                 early_stop_on_correct=self.early_stop_on_correct,
                 speedup_threshold=self.speedup_threshold,
+                tokenizer=tokenizer,
+                prompt_max_tokens=self.prompt_max_tokens,
             )
 
         return train_dataset, test_dataset

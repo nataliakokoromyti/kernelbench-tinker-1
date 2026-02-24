@@ -144,6 +144,8 @@ class MultiTurnKernelBenchEnv(Env):
         system_prompt: str | None = None,
         early_stop_on_correct: bool = False,
         speedup_threshold: float | None = None,
+        tokenizer: object | None = None,
+        prompt_max_tokens: int | None = None,
     ):
         self.problem = problem
         self.renderer = renderer
@@ -152,6 +154,8 @@ class MultiTurnKernelBenchEnv(Env):
         self.reward_config = reward_config or RewardConfig()
         self.early_stop_on_correct = early_stop_on_correct
         self.speedup_threshold = speedup_threshold
+        self.tokenizer = tokenizer
+        self.prompt_max_tokens = prompt_max_tokens
 
         self._system_prompt = system_prompt or build_system_prompt(
             problem.backend, multiturn=True
@@ -179,6 +183,20 @@ class MultiTurnKernelBenchEnv(Env):
         messages.append({"role": "user", "content": self.problem.prompt})
         return messages
 
+    def _count_message_tokens(self, messages: list[renderers.Message]) -> int:
+        """Count total tokens across all messages using the tokenizer."""
+        if self.tokenizer is None:
+            return 0
+        total = 0
+        for msg in messages:
+            content = msg.get("content", "")
+            if hasattr(self.tokenizer, "encode"):
+                total += len(self.tokenizer.encode(content))
+            else:
+                # Rough fallback: ~4 chars per token
+                total += len(content) // 4
+        return total
+
     def _build_refinement_messages(self) -> list[renderers.Message]:
         """Build refinement prompt using multi-turn chat format.
 
@@ -190,8 +208,11 @@ class MultiTurnKernelBenchEnv(Env):
         ``</think>``); the user turn contains evaluation feedback with the
         "Restart your reasoning" instruction.
 
-        Oldest turn-pairs are dropped first when the combined history
-        exceeds ``MAX_HISTORY_CONTEXT_LEN`` characters.
+        When a tokenizer and ``prompt_max_tokens`` are provided, truncation
+        is token-based (Kevin-style): the base messages are tokenized and
+        the remaining token budget is used to keep as many recent history
+        entries as possible.  Otherwise, falls back to character-based
+        truncation using ``MAX_HISTORY_CONTEXT_LEN``.
         """
         messages: list[renderers.Message] = []
         messages.append({"role": "system", "content": self._system_prompt})
@@ -203,14 +224,37 @@ class MultiTurnKernelBenchEnv(Env):
         })
 
         if self.state.history:
-            # Drop oldest entries first if total exceeds budget
             history = list(self.state.history)
-            total_len = sum(
-                len(e["raw_content"]) + len(e["feedback"]) for e in history
-            )
-            while total_len > MAX_HISTORY_CONTEXT_LEN and len(history) > 1:
-                removed = history.pop(0)
-                total_len -= len(removed["raw_content"]) + len(removed["feedback"])
+
+            if self.tokenizer is not None and self.prompt_max_tokens is not None:
+                # Token-based truncation (Kevin-style):
+                # Count tokens used by base messages, then fit history
+                # into the remaining budget, keeping most recent entries.
+                base_tokens = self._count_message_tokens(messages)
+                budget = self.prompt_max_tokens - base_tokens
+
+                # Walk history backwards, accumulating tokens
+                kept: list[dict] = []
+                used = 0
+                for entry in reversed(history):
+                    entry_text = entry["raw_content"] + entry["feedback"]
+                    if hasattr(self.tokenizer, "encode"):
+                        entry_tokens = len(self.tokenizer.encode(entry_text))
+                    else:
+                        entry_tokens = len(entry_text) // 4
+                    if used + entry_tokens > budget and kept:
+                        break
+                    kept.append(entry)
+                    used += entry_tokens
+                history = list(reversed(kept))
+            else:
+                # Char-based fallback
+                total_len = sum(
+                    len(e["raw_content"]) + len(e["feedback"]) for e in history
+                )
+                while total_len > MAX_HISTORY_CONTEXT_LEN and len(history) > 1:
+                    removed = history.pop(0)
+                    total_len -= len(removed["raw_content"]) + len(removed["feedback"])
 
             # Add history as assistant/user turn pairs
             for entry in history:
@@ -460,6 +504,8 @@ class MultiTurnKernelBenchEnvGroupBuilder(EnvGroupBuilder):
     system_prompt: str | None = None
     early_stop_on_correct: bool = False
     speedup_threshold: float | None = None
+    tokenizer: object | None = field(default=None, hash=False, compare=False)
+    prompt_max_tokens: int | None = None
 
     async def make_envs(self) -> Sequence[Env]:
         return [
@@ -472,6 +518,8 @@ class MultiTurnKernelBenchEnvGroupBuilder(EnvGroupBuilder):
                 system_prompt=self.system_prompt,
                 early_stop_on_correct=self.early_stop_on_correct,
                 speedup_threshold=self.speedup_threshold,
+                tokenizer=self.tokenizer,
+                prompt_max_tokens=self.prompt_max_tokens,
             )
             for _ in range(self.group_size)
         ]

@@ -110,6 +110,7 @@ dataset_builder:
     prompt_precision: null
     prompt_include_hardware: false
     prompt_gpu_name: null
+    prompt_max_tokens: null           # Token budget for multi-turn history truncation (null = char fallback)
 
     # ---------------------------------------------------------------------------
     # Evaluation (runs on Modal GPU containers)
@@ -133,6 +134,9 @@ dataset_builder:
     reward_correctness_weight: 0.3
     reward_speed_weight: 1.0
     reward_length_weight: 0.0
+    reward_speed_max_reward: 10.0     # Cap on speed reward component (set high to uncap)
+    reward_clip_min: null             # Lower bound on total reward (null = no clipping)
+    reward_clip_max: null             # Upper bound on total reward (null = no clipping)
 
     # ---------------------------------------------------------------------------
     # Reward Hacking Detection (Static Checker)

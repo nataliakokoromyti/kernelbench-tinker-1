@@ -100,6 +100,12 @@ class RewardConfig:
     # Default: all warning checks from static_checker.WARNING_CHECKS
     static_checker_warnings: list[str] | None = None  # None = use defaults (all warning checks)
 
+    # ==========================================================================
+    # Reward clipping (applied after all reward computation)
+    # ==========================================================================
+    reward_clip_min: float | None = None  # None = no lower clipping
+    reward_clip_max: float | None = None  # None = no upper clipping
+
 
 def format_reward(eval_result: "KernelEvalResult", config: RewardConfig) -> float:
     """
@@ -372,6 +378,11 @@ def compute_reward(
             if config.length_weight > 0:
                 l_reward = length_reward(eval_result, config)
                 base_reward += config.length_weight * l_reward
+            # Clip reward if bounds are configured
+            if config.reward_clip_min is not None:
+                base_reward = max(base_reward, config.reward_clip_min)
+            if config.reward_clip_max is not None:
+                base_reward = min(base_reward, config.reward_clip_max)
             return base_reward
         return 0.0
 
@@ -410,6 +421,11 @@ def compute_reward(
         l_reward = length_reward(eval_result, config)
         total += config.length_weight * l_reward
 
+    # Clip reward if bounds are configured
+    if config.reward_clip_min is not None:
+        total = max(total, config.reward_clip_min)
+    if config.reward_clip_max is not None:
+        total = min(total, config.reward_clip_max)
 
     return total
 

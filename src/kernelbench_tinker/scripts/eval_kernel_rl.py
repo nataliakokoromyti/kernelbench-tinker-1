@@ -86,6 +86,10 @@ class EvalConfig:
     tensorboard_log_dir: str | None = None  # If provided, log eval metrics to TensorBoard
     tensorboard_step: int = 0  # Step to log eval metrics at
 
+    # Multi-turn inference
+    multiturn_enabled: bool = False
+    multiturn_max_turns: int = 8  # Kevin uses 8 refinement steps at inference
+
     # Tinker API
     base_url: str | None = None
 
@@ -214,6 +218,124 @@ async def evaluate_problem(
     )
 
 
+async def evaluate_problem_multiturn(
+    sampling_client: tinker.SamplingClient,
+    problem: KernelBenchProblem,
+    renderer: renderers.Renderer,
+    cfg: EvalConfig,
+) -> EvalResult:
+    """Evaluate a single problem using multi-turn refinement.
+
+    Runs up to ``cfg.multiturn_max_turns`` turns.  Each turn generates a
+    kernel, evaluates it, and feeds back the result as context for the
+    next turn.  The best result across all turns is returned.
+    """
+    from kernelbench_tinker.envs.multiturn_kernelbench_env import build_eval_feedback
+    from kernelbench_tinker.envs.kernelbench_env import build_system_prompt
+
+    samples: list[dict[str, Any]] = []
+    history: list[dict[str, str]] = []  # [{raw_content, feedback}]
+
+    system_prompt = build_system_prompt(problem.backend, multiturn=True)
+
+    for turn in range(cfg.multiturn_max_turns):
+        # Build messages
+        messages: list[dict[str, str]] = [
+            {"role": "system", "content": system_prompt},
+        ]
+        if turn == 0:
+            messages.append({"role": "user", "content": problem.prompt})
+        else:
+            messages.append({
+                "role": "user",
+                "content": problem.base_prompt + "Here are your previous attempts:\n",
+            })
+            for entry in history:
+                messages.append({"role": "assistant", "content": entry["raw_content"]})
+                messages.append({"role": "user", "content": entry["feedback"]})
+
+        # Generate
+        observation = renderer.build_generation_prompt(messages)
+        stop_condition = renderer.get_stop_sequences()
+        completer = TinkerTokenCompleter(
+            sampling_client,
+            max_tokens=cfg.max_tokens,
+            temperature=cfg.temperature if cfg.num_samples == 1 else 1.0,
+        )
+        result = await completer(observation, stop_condition)
+        message, _ = renderer.parse_response(result.tokens)
+        response_text = message.get("content", "")
+
+        parsed = parse_structured_response(response_text)
+        kernel_code = parsed.kernel if parsed.kernel else response_text
+
+        # Evaluate
+        eval_result = await evaluate_kernel_async(
+            level=problem.level,
+            problem_id=problem.problem_id,
+            backend=problem.backend,
+            kernel_code=kernel_code,
+            dataset_src=problem.dataset_src,
+            num_correct_trials=cfg.num_correct_trials,
+            measure_performance=cfg.measure_performance,
+            num_perf_trials=cfg.num_perf_trials,
+            timing_method=cfg.timing_method,
+            precision=cfg.precision,
+            check_for_excessive_speedup=cfg.check_for_excessive_speedup,
+            excessive_speedup_threshold=cfg.excessive_speedup_threshold,
+            timeout=cfg.modal_timeout,
+        )
+
+        # Build feedback for next turn
+        feedback = build_eval_feedback(eval_result)
+
+        # Store raw content (strip thinking)
+        if "</think>" in response_text:
+            raw_content = response_text.split("</think>")[-1].lstrip("\n")
+        else:
+            raw_content = response_text
+        history.append({"raw_content": raw_content, "feedback": feedback})
+
+        if cfg.max_kernel_code_chars is None:
+            kernel_code_logged = kernel_code
+        elif len(kernel_code) > cfg.max_kernel_code_chars:
+            kernel_code_logged = kernel_code[: cfg.max_kernel_code_chars] + "..."
+        else:
+            kernel_code_logged = kernel_code
+
+        samples.append({
+            "sample_id": turn,
+            "turn": turn,
+            "kernel_code": kernel_code_logged,
+            **eval_result,
+        })
+
+    def speedup_value(sample: dict[str, Any]) -> float:
+        speedup = sample.get("speedup")
+        return float(speedup) if isinstance(speedup, (int, float)) else 0.0
+
+    correct_samples = [s for s in samples if s.get("correctness")]
+    if correct_samples:
+        best = max(correct_samples, key=speedup_value)
+    else:
+        compiled = [s for s in samples if s.get("compiled")]
+        best = compiled[0] if compiled else samples[0]
+
+    best_speedup: float | None = None
+    speedup_obj = best.get("speedup")
+    if isinstance(speedup_obj, (int, float)):
+        best_speedup = float(speedup_obj)
+
+    return EvalResult(
+        level=problem.level,
+        problem_id=problem.problem_id,
+        samples=samples,
+        best_correct=bool(best.get("correctness")),
+        best_compiled=bool(best.get("compiled")),
+        best_speedup=best_speedup,
+    )
+
+
 async def run_evaluation(cfg: EvalConfig) -> dict[str, Any]:
     """Run full evaluation."""
     from kernelbench_tinker.modal.evaluator import (
@@ -271,10 +393,11 @@ async def run_evaluation(cfg: EvalConfig) -> dict[str, Any]:
     logger.info(f"Evaluating {len(problems)} problems from level {cfg.level}")
 
     # Evaluate each problem
+    eval_fn = evaluate_problem_multiturn if cfg.multiturn_enabled else evaluate_problem
     results = []
     for problem in tqdm(problems, desc="Evaluating"):
         try:
-            result = await evaluate_problem(
+            result = await eval_fn(
                 sampling_client, problem, renderer, cfg
             )
             results.append(result)
