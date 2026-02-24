@@ -11,6 +11,7 @@ This module implements reward functions that combine:
 from __future__ import annotations
 
 import logging
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -235,6 +236,86 @@ def length_reward(eval_result: "KernelEvalResult", config: RewardConfig) -> floa
         return 1.0 - (position / range_size)
 
 
+# ---------------------------------------------------------------------------
+# Kevin-style static checks (verbatim from original training code)
+# ---------------------------------------------------------------------------
+
+# Disallowed torch functions (exact list from Kevin's reward.py)
+_KEVIN_DISALLOWED_TORCH_FUNCTIONS = [
+    "torch.conv1d", "torch.conv2d", "torch.conv3d",
+    "torch.conv_transpose1d", "torch.conv_transpose2d", "torch.conv_transpose3d",
+    "torch.avg_pool1d", "torch.avg_pool2d", "torch.avg_pool3d",
+    "torch.max_pool1d", "torch.max_pool2d", "torch.max_pool3d",
+    "torch.adaptive_avg_pool1d", "torch.adaptive_avg_pool2d", "torch.adaptive_avg_pool3d",
+    "torch.adaptive_max_pool1d", "torch.adaptive_max_pool2d", "torch.adaptive_max_pool3d",
+    "torch.relu", "torch.hardtanh", "torch.elu", "torch.selu",
+    "torch.leaky_relu", "torch.gelu", "torch.softsign", "torch.softplus",
+    "torch.softmax", "torch.log_softmax", "torch.tanh", "torch.sigmoid",
+    "torch.hardsigmoid", "torch.silu", "torch.mish",
+    "torch.batch_norm", "torch.group_norm", "torch.layer_norm",
+    "torch.instance_norm", "torch.rms_norm", "torch.normalize", "torch.linear",
+    "torch.cross_entropy", "torch.kl_div", "torch.mse_loss",
+    "torch.huber_loss", "torch.triplet_margin_loss", "torch.cosine_similarity",
+    "torch.logsumexp", "torch.log_softmax", "torch.clamp", "torch.dropout",
+]
+
+# Allowed nn. patterns (everything else is disallowed)
+_KEVIN_ALLOWED_NN_PATTERN = re.compile(
+    r'nn\.(?!(Module|parameter|Parameter|ParameterList|ParameterDict|ModuleList|ModuleDict|init)\b)'
+)
+
+# Efficient regex for disallowed torch functions
+_KEVIN_DISALLOWED_PATTERN = re.compile(
+    r'\b(' + '|'.join(re.escape(func) for func in _KEVIN_DISALLOWED_TORCH_FUNCTIONS) + r')(?=\s*\(|\s|$)'
+)
+
+
+def check_kevin_static(kernel_code: str) -> tuple[bool, list[str]]:
+    """Check kernel code using the exact static checks from Kevin's training code.
+
+    These checks are specific to the CUDA backend and verify:
+    1. ``__global__`` keyword is present (real CUDA kernel)
+    2. ``load_inline(`` is present (inline compilation)
+    3. No disallowed ``nn.`` usage (only Module, Parameter, containers, init allowed)
+    4. No disallowed ``torch.*`` functional calls (conv, pool, activation, norm, etc.)
+
+    Args:
+        kernel_code: The kernel source code to check.
+
+    Returns:
+        Tuple of (passed, errors) where *passed* is True if all checks pass.
+    """
+    errors: list[str] = []
+
+    # 1 & 2: Must contain __global__ and load_inline(
+    if "__global__" not in kernel_code or "load_inline(" not in kernel_code:
+        errors.append("Has no valid CUDA kernel (__global__ or load_inline( missing).")
+        return (False, errors)
+
+    # Strip comment lines for remaining checks
+    code_lines = [line for line in kernel_code.split('\n') if not line.strip().startswith('#')]
+    non_comment_code = '\n'.join(code_lines)
+
+    # 3: Disallowed nn. patterns
+    if _KEVIN_ALLOWED_NN_PATTERN.search(non_comment_code):
+        errors.append(
+            "You're not allowed to use torch.nn in the custom CUDA kernel "
+            "(except for containers, nn.Parameter, and nn.init)."
+        )
+        return (False, errors)
+
+    # 4: Disallowed torch functions
+    match = _KEVIN_DISALLOWED_PATTERN.search(non_comment_code)
+    if match:
+        errors.append(
+            f"You're not allowed to use torch.nn.functional in the custom "
+            f"CUDA kernel by calling {match.group(0)}."
+        )
+        return (False, errors)
+
+    return (True, [])
+
+
 def check_reward_hacking(
     kernel_code: str,
     config: RewardConfig,
@@ -328,6 +409,17 @@ def compute_reward(
         return 0.0
 
     # ==========================================================================
+    # Kevin-style static checks (CUDA backend only)
+    # These match the original Kevin training code's parsing checks exactly.
+    # ==========================================================================
+    if kernel_code and backend and backend.lower() == "cuda":
+        passed, kevin_errors = check_kevin_static(kernel_code)
+        if not passed:
+            for error in kevin_errors:
+                logger.error(f"Kevin static check failed (reward set to 0): {error}")
+            return 0.0
+
+    # ==========================================================================
     # Check for reward hacking (static checker)
     # ==========================================================================
     if config.enable_static_checker and kernel_code:
@@ -336,7 +428,7 @@ def compute_reward(
             config=config,
             backend=backend,
         )
-        
+
         # Log warnings (don't zero reward)
         for warning in warnings:
             logger.warning(f"Static checker warning: {warning}")
@@ -422,6 +514,11 @@ def compute_reward_breakdown(
     if config is None:
         config = RewardConfig()
 
+    # Run Kevin static checks for CUDA
+    kevin_errors: list[str] = []
+    if kernel_code and backend and backend.lower() == "cuda":
+        _, kevin_errors = check_kevin_static(kernel_code)
+
     # Run static checker if enabled
     static_checker_errors: list[str] = []
     static_checker_warnings: list[str] = []
@@ -439,6 +536,7 @@ def compute_reward_breakdown(
         "reward_speed": speed_reward(eval_result, config, use_speed=True),
         "reward_length": length_reward(eval_result, config),
         "reward_total": compute_reward(eval_result, config, kernel_code=kernel_code, backend=backend),
+        "kevin_static_errors": kevin_errors,
         "static_checker_errors": static_checker_errors,
         "static_checker_warnings": static_checker_warnings,
     }
