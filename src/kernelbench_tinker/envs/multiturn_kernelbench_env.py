@@ -46,49 +46,55 @@ from kernelbench_tinker.training.trace_logger import get_trace_logger
 logger = logging.getLogger(__name__)
 
 # Limits for feedback content included in refinement prompts
-MAX_KERNEL_HISTORY_LEN = 2000
 MAX_HISTORY_CONTEXT_LEN = 8000
 MAX_ERROR_LEN = 800
 
 
 def build_eval_feedback(eval_result: KernelEvalResult) -> str:
-    """Build a human-readable feedback string from an evaluation result."""
-    if not eval_result["format_ok"]:
-        error_msg = (eval_result.get("error_message") or "")[:MAX_ERROR_LEN]
-        if error_msg:
-            return (
-                "Your previous answer failed to be parsed due to not adhering "
-                f"to the desired formatting. Here is the error message: {error_msg}"
-            )
-        return (
-            "Your previous answer failed to be parsed due to not adhering "
-            "to the desired formatting."
-        )
+    """Build a human-readable feedback string from an evaluation result.
 
+    Each feedback string ends with the instruction to restart reasoning,
+    matching the original Kevin training code's ``response_for_kernel_eval``.
+    """
     error_msg = (eval_result.get("error_message") or "")[:MAX_ERROR_LEN]
 
-    if not eval_result["compiled"]:
-        return (
-            "Your previous answer failed to compile. "
-            f"Here is the error message: {error_msg}"
-        )
-
-    if not eval_result["correctness"]:
+    if not eval_result["format_ok"]:
         if error_msg:
-            # Runtime crash — kernel compiled but threw an error
-            return (
-                "Your previous answer compiled successfully but had runtime "
-                f"errors. Here is the error message: {error_msg}"
+            resp = (
+                "Your previous answer failed to be parsed due to not adhering "
+                f"to the desired formatting. Here's the error message: {error_msg}.\n"
             )
-        return "Your previous answer was incorrect."
-
-    speedup = eval_result.get("speedup")
-    if speedup is not None:
-        return (
-            "Your previous answer was correct but can be made faster. "
-            f"Here is the speedup you achieved relative to the baseline: {speedup:.2f}x"
+        else:
+            resp = (
+                "Your previous answer failed to be parsed due to not adhering "
+                "to the desired formatting.\n"
+            )
+    elif not eval_result["compiled"]:
+        resp = (
+            "Your previous answer failed to compile. "
+            f"Here's the error message: {error_msg}.\n"
         )
-    return "Your previous answer was correct but can be made faster."
+    elif not eval_result["correctness"]:
+        if error_msg:
+            resp = (
+                "Your previous answer compiled successfully but had runtime "
+                f"errors. Here's the error message: {error_msg}.\n"
+            )
+        else:
+            resp = (
+                "Your previous answer was incorrect. "
+                f"Here's the error message: {error_msg}.\n"
+            )
+    else:
+        speedup = eval_result.get("speedup") or 0.0
+        resp = (
+            "Your previous answer was correct but can be made faster. "
+            "Here's the speedup you achieved relative to the baseline: "
+            f"{speedup:.2f}.\n"
+        )
+
+    resp += "\nRestart your reasoning process and generate new, complete code."
+    return resp
 
 
 # ---------------------------------------------------------------------------
@@ -105,7 +111,7 @@ class MultiTurnState:
     backend: str
     turn_idx: int
     max_turns: int
-    history: list[dict]  # Per-turn: {kernel, cot_summary, feedback, score}
+    history: list[dict]  # Per-turn: {raw_content, kernel, feedback, score}
     step_scores: list[float]
     done: bool
     success: bool
@@ -174,58 +180,43 @@ class MultiTurnKernelBenchEnv(Env):
         return messages
 
     def _build_refinement_messages(self) -> list[renderers.Message]:
-        """Build a fresh prompt with the original problem + history of attempts.
+        """Build refinement prompt using multi-turn chat format.
 
-        Uses the zero-shot prompt (no examples) on refinement turns to save
-        context tokens — the one-shot example is only needed on the first turn.
-        Includes "Here are your previous attempts:" with each prior kernel, its
-        summarized CoT, and evaluation feedback.  Oldest entries are dropped
-        first when the combined history exceeds MAX_HISTORY_CONTEXT_LEN
-        characters.
+        Strips the one-shot example from the problem prompt and structures
+        the history as alternating assistant / user turns (matching the
+        original Kevin training code's ``_generate_vllm_refinement``).
+
+        The assistant turn contains the raw model output (everything after
+        ``</think>``); the user turn contains evaluation feedback with the
+        "Restart your reasoning" instruction.
+
+        Oldest turn-pairs are dropped first when the combined history
+        exceeds ``MAX_HISTORY_CONTEXT_LEN`` characters.
         """
         messages: list[renderers.Message] = []
         messages.append({"role": "system", "content": self._system_prompt})
 
-        user_parts = [self.problem.base_prompt]
+        # Initial user message: problem without one-shot example
+        messages.append({
+            "role": "user",
+            "content": self.problem.base_prompt + "Here are your previous attempts:\n",
+        })
 
         if self.state.history:
-            # Format each turn's history entry (paper Appendix D format)
-            entries: list[str] = []
-            for i, entry in enumerate(self.state.history):
-                kernel_display = entry["kernel"]
-                if len(kernel_display) > MAX_KERNEL_HISTORY_LEN:
-                    kernel_display = (
-                        kernel_display[:MAX_KERNEL_HISTORY_LEN]
-                        + "\n# ... (truncated)"
-                    )
-
-                parts: list[str] = []
-                # Previously generated kernel G[i]
-                parts.append(f"```python\n{kernel_display}\n```")
-                # Summary of CoT[i]
-                if entry["cot_summary"]:
-                    parts.append(entry["cot_summary"])
-                # Evaluation feedback
-                parts.append(entry["feedback"])
-                entries.append("\n\n".join(parts))
-
             # Drop oldest entries first if total exceeds budget
-            total_len = sum(len(e) for e in entries)
-            while total_len > MAX_HISTORY_CONTEXT_LEN and len(entries) > 1:
-                total_len -= len(entries[0])
-                entries.pop(0)
-
-            user_parts.append(
-                "\n\nHere are your previous attempts:\n\n"
-                + "\n\n".join(entries)
+            history = list(self.state.history)
+            total_len = sum(
+                len(e["raw_content"]) + len(e["feedback"]) for e in history
             )
+            while total_len > MAX_HISTORY_CONTEXT_LEN and len(history) > 1:
+                removed = history.pop(0)
+                total_len -= len(removed["raw_content"]) + len(removed["feedback"])
 
-            user_parts.append(
-                "\n\nRestart your reasoning process and generate new, "
-                "complete code."
-            )
+            # Add history as assistant/user turn pairs
+            for entry in history:
+                messages.append({"role": "assistant", "content": entry["raw_content"]})
+                messages.append({"role": "user", "content": entry["feedback"]})
 
-        messages.append({"role": "user", "content": "\n".join(user_parts)})
         return messages
 
     async def initial_observation(self) -> tuple[Observation, StopCondition]:
@@ -286,11 +277,19 @@ class MultiTurnKernelBenchEnv(Env):
         )
         state.step_scores.append(step_score)
 
+        # Extract raw response content after </think> for history context.
+        # This matches the original Kevin code which stores everything after
+        # </think> as the assistant turn in multi-turn chat format.
+        if "</think>" in response_text:
+            raw_content = response_text.split("</think>")[-1].lstrip('\n')
+        else:
+            raw_content = response_text
+
         # Build feedback and store in history
         feedback = build_eval_feedback(eval_result)
         state.history.append({
+            "raw_content": raw_content,
             "kernel": kernel_code,
-            "cot_summary": parsed.cot_summary,
             "feedback": feedback,
             "score": step_score,
         })
@@ -419,8 +418,8 @@ class MultiTurnKernelBenchEnv(Env):
             "metrics": metrics,
             "history": [
                 {
+                    "raw_content": entry["raw_content"],
                     "kernel": entry["kernel"],
-                    "summary": entry["cot_summary"],
                     "feedback": entry["feedback"],
                     "score": entry["score"],
                 }

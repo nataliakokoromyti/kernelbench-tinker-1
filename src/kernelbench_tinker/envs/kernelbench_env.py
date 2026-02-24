@@ -70,35 +70,18 @@ class ModelNew(nn.Module):
 ```
 </KERNEL>"""
 
-_MULTITURN_SYSTEM_PROMPT = """\
-You are an expert GPU kernel developer. Your task is to optimize PyTorch \
-operations by writing efficient custom {backend} kernels. Do not \
-use torch.nn (except for Parameter, containers, and init). The input and \
-output have to be on CUDA device. Your answer must be the complete new \
-architecture (no testing code, no other code): it will be evaluated and you \
-will be given feedback on its correctness and speedup so you can keep \
-iterating, trying to maximize the speedup. After your answer, summarize \
-your changes in a few sentences.
-
-You MUST respond in exactly this format:
-
-<KERNEL>
-```python
-# Your complete optimized implementation here
-class ModelNew(nn.Module):
-    ...
-```
-</KERNEL>
-
-<SUMMARY>
-Summarize your changes in a few sentences.
-</SUMMARY>"""
+_MULTITURN_SYSTEM_PROMPT = ""
 
 
 def build_system_prompt(backend: str, multiturn: bool = False) -> str:
-    """Build the system prompt, optionally including multi-turn instructions."""
+    """Build the system prompt, optionally including multi-turn instructions.
+
+    Multi-turn uses an empty system prompt — all instructions are in the user
+    message (via the KernelBench prompt constructor).  This matches the
+    original Kevin training code.
+    """
     if multiturn:
-        return _MULTITURN_SYSTEM_PROMPT.format(backend=backend.upper())
+        return _MULTITURN_SYSTEM_PROMPT
     return _BASE_SYSTEM_PROMPT.format(backend=backend.upper())
 
 

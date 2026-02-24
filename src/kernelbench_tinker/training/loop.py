@@ -310,22 +310,37 @@ def flatten_multiturn_trajectory_groups(
 
 def compute_multiturn_advantages(
     trajectory_groups: list[TrajectoryGroup],
+    num_turns: int = 1,
 ) -> list[torch.Tensor]:
-    """Per-turn advantage normalization across all m*n samples per task.
+    """Per-turn advantage normalization across m parallel trajectories.
 
-    A_t = (R_t - mean(all R)) / std(all R)
+    Reshapes rewards to (m, num_turns) and normalizes across dim=0
+    (the m parallel trajectories) independently for each turn.
+    This matches the ``group_norm_refinement`` estimator from
+    the original Kevin training code.
 
     Each TrajectoryGroup should already be flattened so that each
-    "trajectory" is a single turn with reward = R_t.
+    "trajectory" is a single turn with reward = R_t.  The flattened
+    order is: traj0_turn0, traj0_turn1, ..., traj1_turn0, ...
     """
     advantages_P = []
     for tg in trajectory_groups:
         rewards = torch.tensor(tg.get_total_rewards())
-        mean = rewards.mean()
-        std = rewards.std()
-        if std < 1e-8:
-            std = torch.tensor(1.0)
-        advantages = (rewards - mean) / std
+        n_total = len(rewards)
+        m = n_total // num_turns if num_turns > 0 else n_total
+
+        if num_turns > 1 and m > 0 and n_total == m * num_turns:
+            # Shape: (m, num_turns) — normalize across m (dim=0) per turn
+            rewards_matrix = rewards.reshape(m, num_turns)
+            mean = rewards_matrix.mean(dim=0, keepdim=True)
+            std = rewards_matrix.std(dim=0, keepdim=True) + 1e-9
+            advantages = ((rewards_matrix - mean) / std).reshape(-1)
+        else:
+            # Fallback to flat normalization
+            mean = rewards.mean()
+            std = rewards.std() + 1e-9
+            advantages = (rewards - mean) / std
+
         advantages_P.append(advantages)
     return advantages_P
 
@@ -876,7 +891,9 @@ async def run_training_loop(
             if is_multiturn:
                 # Per-turn normalization: A_t = (R_t - mean) / std
                 # across all m*n flattened turn-level samples
-                advantages = compute_multiturn_advantages(trajectory_groups)
+                advantages = compute_multiturn_advantages(
+                    trajectory_groups, num_turns=cfg.multiturn.n
+                )
             else:
                 advantages = compute_advantages(trajectory_groups)
 
