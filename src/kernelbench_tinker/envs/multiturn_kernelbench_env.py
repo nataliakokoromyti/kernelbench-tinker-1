@@ -52,10 +52,7 @@ MAX_ERROR_LEN = 800
 
 
 def build_eval_feedback(eval_result: KernelEvalResult) -> str:
-    """Build a feedback string from an evaluation result.
-
-    Follows the exact format from Kevin (arXiv:2507.11948v1), Section 4 / Appendix D.
-    """
+    """Build a human-readable feedback string from an evaluation result."""
     if not eval_result["format_ok"]:
         error_msg = (eval_result.get("error_message") or "")[:MAX_ERROR_LEN]
         if error_msg:
@@ -179,12 +176,10 @@ class MultiTurnKernelBenchEnv(Env):
     def _build_refinement_messages(self) -> list[renderers.Message]:
         """Build a fresh prompt with the original problem + history of attempts.
 
-        Follows the exact format from Kevin (arXiv:2507.11948v1), Appendix D:
-        the base prompt, then "Here are your previous attempts:", then for each
-        previous turn: the generated kernel, summarized CoT, and evaluation
-        feedback.  Oldest entries are dropped first when the combined history
-        exceeds MAX_HISTORY_CONTEXT_LEN characters.  Ends with "Restart your
-        reasoning process and generate new, complete code."
+        Includes the base prompt, then "Here are your previous attempts:" with
+        each prior kernel, its summarized CoT, and evaluation feedback.  Oldest
+        entries are dropped first when the combined history exceeds
+        MAX_HISTORY_CONTEXT_LEN characters.
         """
         messages: list[renderers.Message] = []
         messages.append({"role": "system", "content": self._system_prompt})
