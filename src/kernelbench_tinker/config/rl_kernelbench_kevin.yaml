@@ -8,15 +8,15 @@
 #   - gamma: 0.8 (not 0.4)
 #   - num_correct_trials: 1 (not 5)
 #   - num_perf_trials: 10 (not 100)
-#   - reward_clip: [-10, 10]
 #   - speed_max_reward: uncapped (100000.0)
+#   - NO reward clipping (PPO ratio clipping only)
 #   - modal_timeout: 300s (not 60s)
 #   - num_epochs: 6 (Kevin: num_episodes=6)
 #   - check_for_excessive_speedup: false
 #   - prompt_max_tokens: 8192 (token-based history truncation)
 #   - multi-turn enabled with 4 turns
 #
-# Known gap: Kevin uses top_p=0.95 which TinkerTokenCompleter does not expose.
+# top_p and seed are now supported via KernelBenchTokenCompleter.
 #
 # Usage:
 #   python -m kernelbench_tinker.scripts.train_kernel_rl \
@@ -35,6 +35,8 @@ learning_rate: 0.000002
 # =============================================================================
 max_tokens: 16384
 temperature: 0.9
+top_p: 0.95                             # Kevin: nucleus sampling
+seed: 128                               # Kevin: seed=128
 max_tokens_extended: 22528          # Kevin: extend to 22K mid-training
 max_tokens_extend_after_step: 30    # Kevin: extend at step 30
 
@@ -89,6 +91,10 @@ dataset_builder:
     num_epochs: 6                     # Kevin: num_episodes=6
     shuffle: true
     test_fraction: 0.1
+    # Kevin's exact holdout indices per level
+    holdout_indices:
+        1: [3, 10, 25, 40, 45, 51, 60, 63, 90, 97]
+        2: [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
 
     renderer_name: "qwen3"
     prompt_option: "one_shot"
@@ -114,9 +120,9 @@ dataset_builder:
     reward_correctness_weight: 0.3
     reward_speed_weight: 1.0
     reward_length_weight: 0.0
-    reward_speed_max_reward: 100000.0  # Kevin: no speed cap (uncapped speedup flows to clipping)
-    reward_clip_min: -10.0            # Kevin: clip total reward to [-10, 10]
-    reward_clip_max: 10.0
+    reward_speed_max_reward: 100000.0  # Kevin: no speed cap
+    reward_clip_min: null             # Kevin does NOT clip raw rewards
+    reward_clip_max: null             # (PPO ratio clipping is separate)
 
     # Reward hacking detection
     reward_enable_static_checker: true

@@ -174,6 +174,44 @@ def extract_code_block(text: str, languages: list[str] | None = None) -> str | N
     return None
 
 
+# Kevin-style response pattern: any fenced code block after </think>
+_KEVIN_PARSE_PATTERN = re.compile(
+    r".*?</think>.*?```(.*?)```.*?$", re.DOTALL
+)
+
+# Fallback: any fenced code block (no </think> required)
+_KEVIN_PARSE_FALLBACK = re.compile(
+    r"```(?:python|cuda|cpp)?\s*\n?(.*?)```", re.DOTALL
+)
+
+
+def parse_kevin_response(text: str) -> ParsedResponse:
+    """Parse response using Kevin's regex (any code block after ``</think>``).
+
+    Bob's parsing: ``r".*?</think>.*?```(.*?)```.*?$"```.
+    format_ok = True if a code block was extracted (no ModelNew check).
+    """
+    raw = text
+    kernel = ""
+
+    match = _KEVIN_PARSE_PATTERN.match(text)
+    if match:
+        kernel = match.group(1).strip()
+        # Strip optional language tag on first line (e.g. "python\n...")
+        if kernel and "\n" in kernel:
+            first_line = kernel.split("\n", 1)[0].strip().lower()
+            if first_line in ("python", "cuda", "cpp", "c++", "c"):
+                kernel = kernel.split("\n", 1)[1]
+    else:
+        # Fallback: any code block (model may not have used </think>)
+        fb = _KEVIN_PARSE_FALLBACK.search(text)
+        if fb:
+            kernel = fb.group(1).strip()
+
+    format_ok = bool(kernel)
+    return ParsedResponse(kernel=kernel, cot_summary="", raw=raw, format_ok=format_ok)
+
+
 @functools.lru_cache(maxsize=1)
 def _load_hf_kernelbench_dataset():
     """Load the HuggingFace KernelBench dataset once per process."""

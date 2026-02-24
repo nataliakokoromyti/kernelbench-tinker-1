@@ -27,7 +27,12 @@ import torch
 from tinker.types import LossFnType
 
 from tinker_cookbook import checkpoint_utils
-from tinker_cookbook.completers import TinkerTokenCompleter
+from tinker_cookbook.completers import (
+    StopCondition,
+    TinkerTokenCompleter,
+    TokenCompleter,
+    TokensWithLogprobs,
+)
 from tinker_cookbook.rl.data_processing import (
     assemble_training_data,
     compute_advantages,
@@ -54,6 +59,47 @@ from kernelbench_tinker.training.tensorboard_logger import (
     create_tensorboard_logger,
 )
 from kernelbench_tinker.training.trace_logger import TraceLogger, set_trace_logger
+
+
+class KernelBenchTokenCompleter(TokenCompleter):
+    """Token completer with top_p and seed support.
+
+    Extends TinkerTokenCompleter to pass additional SamplingParams fields
+    that the base class does not expose (top_p, seed).
+    """
+
+    def __init__(
+        self,
+        sampling_client: tinker.SamplingClient,
+        max_tokens: int,
+        temperature: float = 1.0,
+        top_p: float = 1.0,
+        seed: int | None = None,
+    ):
+        self.sampling_client = sampling_client
+        self.max_tokens = max_tokens
+        self.temperature = temperature
+        self.top_p = top_p
+        self.seed = seed
+
+    async def __call__(
+        self, model_input: tinker.ModelInput, stop: StopCondition
+    ) -> TokensWithLogprobs:
+        sample_result = await self.sampling_client.sample_async(
+            prompt=model_input,
+            num_samples=1,
+            sampling_params=tinker.SamplingParams(
+                stop=stop,
+                max_tokens=self.max_tokens,
+                temperature=self.temperature,
+                top_p=self.top_p,
+                seed=self.seed,
+            ),
+        )
+        sampled_tokens = sample_result.sequences[0].tokens
+        sampled_logprobs = sample_result.sequences[0].logprobs
+        assert sampled_logprobs is not None
+        return TokensWithLogprobs(tokens=sampled_tokens, maybe_logprobs=sampled_logprobs)
 
 
 def prepare_datum(
@@ -97,6 +143,8 @@ class TrainingConfig:
     # Generation configuration
     max_tokens: int = 4096
     temperature: float = 1.0
+    top_p: float = 1.0  # Nucleus sampling (Kevin uses 0.95)
+    seed: int | None = None  # Random seed for generation (Kevin uses 128)
 
     # Response length extension: extend max_tokens mid-training as the
     # model attempts more sophisticated solutions.  Set to 0 to disable.
@@ -160,6 +208,8 @@ async def do_group_rollout_and_filter(
     max_tokens: int,
     temperature: float,
     do_remove_constant_reward_groups: bool,
+    top_p: float = 1.0,
+    seed: int | None = None,
 ) -> TrajectoryGroup | None:
     """
     Perform rollouts for a group and optionally filter constant reward groups.
@@ -170,14 +220,18 @@ async def do_group_rollout_and_filter(
         max_tokens: Maximum tokens to generate
         temperature: Sampling temperature
         do_remove_constant_reward_groups: Whether to filter constant groups
+        top_p: Nucleus sampling probability
+        seed: Random seed for generation
 
     Returns:
         TrajectoryGroup or None if filtered out
     """
-    policy = TinkerTokenCompleter(
+    policy = KernelBenchTokenCompleter(
         sampling_client,
         max_tokens=max_tokens,
         temperature=temperature,
+        top_p=top_p,
+        seed=seed,
     )
 
     trajectory_group = await do_group_rollout(env_group_builder, policy)
@@ -198,6 +252,8 @@ async def do_group_rollout_with_envs(
     max_tokens: int,
     temperature: float,
     do_remove_constant_reward_groups: bool,
+    top_p: float = 1.0,
+    seed: int | None = None,
 ) -> tuple[TrajectoryGroup | None, Sequence[Env] | None]:
     """
     Perform rollouts and return both trajectory group and env references.
@@ -212,10 +268,12 @@ async def do_group_rollout_with_envs(
     separate do_group_rollout_with_envs) to tinker-cookbook so we can
     drop this reimplementation.
     """
-    policy = TinkerTokenCompleter(
+    policy = KernelBenchTokenCompleter(
         sampling_client,
         max_tokens=max_tokens,
         temperature=temperature,
+        top_p=top_p,
+        seed=seed,
     )
 
     envs = await env_group_builder.make_envs()
@@ -312,12 +370,15 @@ def compute_multiturn_advantages(
     trajectory_groups: list[TrajectoryGroup],
     num_turns: int = 1,
 ) -> list[torch.Tensor]:
-    """Per-turn advantage normalization across m parallel trajectories.
+    """Dr. GRPO advantage estimation matching Bob's ``group_norm``.
 
-    Reshapes rewards to (m, num_turns) and normalizes across dim=0
-    (the m parallel trajectories) independently for each turn.
-    This matches the ``group_norm_refinement`` estimator from
-    the original Kevin training code.
+    Flattens all m * num_turns samples per problem and subtracts the
+    group mean.  Does NOT divide by std (Dr. GRPO style).
+
+    This matches the original Kevin training code::
+
+        rewards = rewards.reshape(-1, n_samples_per_prompt)
+        rewards = rewards - rewards.mean(-1, keepdim=True)
 
     Each TrajectoryGroup should already be flattened so that each
     "trajectory" is a single turn with reward = R_t.  The flattened
@@ -326,21 +387,9 @@ def compute_multiturn_advantages(
     advantages_P = []
     for tg in trajectory_groups:
         rewards = torch.tensor(tg.get_total_rewards())
-        n_total = len(rewards)
-        m = n_total // num_turns if num_turns > 0 else n_total
-
-        if num_turns > 1 and m > 0 and n_total == m * num_turns:
-            # Shape: (m, num_turns) — normalize across m (dim=0) per turn
-            rewards_matrix = rewards.reshape(m, num_turns)
-            mean = rewards_matrix.mean(dim=0, keepdim=True)
-            std = rewards_matrix.std(dim=0, keepdim=True) + 1e-9
-            advantages = ((rewards_matrix - mean) / std).reshape(-1)
-        else:
-            # Fallback to flat normalization
-            mean = rewards.mean()
-            std = rewards.std() + 1e-9
-            advantages = (rewards - mean) / std
-
+        # Dr. GRPO: subtract mean across ALL samples for this problem, no std division
+        mean = rewards.mean()
+        advantages = rewards - mean
         advantages_P.append(advantages)
     return advantages_P
 
@@ -805,6 +854,8 @@ async def run_training_loop(
                                 max_tokens=effective_max_tokens,
                                 temperature=cfg.temperature,
                                 do_remove_constant_reward_groups=cfg.remove_constant_reward_groups,
+                                top_p=cfg.top_p,
+                                seed=cfg.seed,
                             )
                             for builder in env_group_builders
                         ],
@@ -861,6 +912,8 @@ async def run_training_loop(
                                 max_tokens=effective_max_tokens,
                                 temperature=cfg.temperature,
                                 do_remove_constant_reward_groups=cfg.remove_constant_reward_groups,
+                                top_p=cfg.top_p,
+                                seed=cfg.seed,
                             )
                             for builder in env_group_builders
                         ],
@@ -889,8 +942,8 @@ async def run_training_loop(
         # Compute advantages and assemble training data
         with timed("assemble_data", metrics):
             if is_multiturn:
-                # Per-turn normalization: A_t = (R_t - mean) / std
-                # across all m*n flattened turn-level samples
+                # Dr. GRPO (group_norm): A_t = R_t - mean(R)
+                # across all m*n flattened turn-level samples, no std division
                 advantages = compute_multiturn_advantages(
                     trajectory_groups, num_turns=cfg.multiturn.n
                 )

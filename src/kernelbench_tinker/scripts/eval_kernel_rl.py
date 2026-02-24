@@ -33,8 +33,10 @@ from kernelbench_tinker.envs.kernelbench_client import (
     KernelBenchProblem,
     evaluate_kernel_async,
     get_problem_ids,
+    parse_kevin_response,
     parse_structured_response,
 )
+from kernelbench_tinker.training.loop import KernelBenchTokenCompleter
 from kernelbench_tinker.training.models import get_renderer_name_for_model
 
 logger = logging.getLogger(__name__)
@@ -58,6 +60,7 @@ class EvalConfig:
     # Generation configuration
     max_tokens: int = 4096
     temperature: float = 0.0  # Greedy for eval
+    top_p: float = 1.0  # Nucleus sampling (Kevin uses 0.95)
     num_samples: int = 1  # Samples per problem
 
     # Evaluation settings
@@ -89,6 +92,9 @@ class EvalConfig:
     # Multi-turn inference
     multiturn_enabled: bool = False
     multiturn_max_turns: int = 8  # Kevin uses 8 refinement steps at inference
+    kevin_prompt: bool = False  # Use Kevin's exact prompt format
+    inject_think_token: bool = False  # Append <think>\n to generation prompts
+    prompt_max_tokens: int | None = None  # Token budget for history truncation
 
     # Tinker API
     base_url: str | None = None
@@ -223,32 +229,66 @@ async def evaluate_problem_multiturn(
     problem: KernelBenchProblem,
     renderer: renderers.Renderer,
     cfg: EvalConfig,
+    tokenizer: object | None = None,
 ) -> EvalResult:
     """Evaluate a single problem using multi-turn refinement.
 
     Runs up to ``cfg.multiturn_max_turns`` turns.  Each turn generates a
     kernel, evaluates it, and feeds back the result as context for the
     next turn.  The best result across all turns is returned.
+
+    When ``cfg.kevin_prompt`` is True, uses Kevin's exact prompt format,
+    think token injection, and Kevin-style response parsing.
     """
-    from kernelbench_tinker.envs.multiturn_kernelbench_env import build_eval_feedback
+    from kernelbench_tinker.envs.multiturn_kernelbench_env import (
+        build_eval_feedback,
+        build_kevin_prompt,
+        build_kevin_base_prompt,
+    )
     from kernelbench_tinker.envs.kernelbench_env import build_system_prompt
+    from kernelbench_tinker.envs.kernelbench_client import get_reference_code
 
     samples: list[dict[str, Any]] = []
     history: list[dict[str, str]] = []  # [{raw_content, feedback}]
 
     system_prompt = build_system_prompt(problem.backend, multiturn=True)
 
+    # Pre-build Kevin prompts if enabled
+    kevin_turn0_prompt = None
+    kevin_base_prompt = None
+    if cfg.kevin_prompt:
+        ref_code = get_reference_code(
+            problem.level, problem.problem_id, problem.dataset_src
+        )
+        kevin_turn0_prompt = build_kevin_prompt(ref_code)
+        kevin_base_prompt = build_kevin_base_prompt(ref_code)
+
+    # Think token injection setup
+    think_chunk = None
+    if cfg.inject_think_token and tokenizer is not None:
+        from tinker.types.model_input_chunk import EncodedTextChunk
+        think_ids = tokenizer.encode("<think>\n", add_special_tokens=False)
+        think_chunk = EncodedTextChunk(tokens=think_ids)
+
     for turn in range(cfg.multiturn_max_turns):
         # Build messages
-        messages: list[dict[str, str]] = [
-            {"role": "system", "content": system_prompt},
-        ]
+        messages: list[dict[str, str]] = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+
         if turn == 0:
-            messages.append({"role": "user", "content": problem.prompt})
+            if cfg.kevin_prompt:
+                messages.append({"role": "user", "content": kevin_turn0_prompt})
+            else:
+                messages.append({"role": "user", "content": problem.prompt})
         else:
+            if cfg.kevin_prompt:
+                base = kevin_base_prompt
+            else:
+                base = problem.base_prompt
             messages.append({
                 "role": "user",
-                "content": problem.base_prompt + "Here are your previous attempts:\n",
+                "content": base + "Here are your previous attempts:\n",
             })
             for entry in history:
                 messages.append({"role": "assistant", "content": entry["raw_content"]})
@@ -256,17 +296,23 @@ async def evaluate_problem_multiturn(
 
         # Generate
         observation = renderer.build_generation_prompt(messages)
+        if think_chunk is not None:
+            observation = observation.append(think_chunk)
         stop_condition = renderer.get_stop_sequences()
-        completer = TinkerTokenCompleter(
+        completer = KernelBenchTokenCompleter(
             sampling_client,
             max_tokens=cfg.max_tokens,
             temperature=cfg.temperature if cfg.num_samples == 1 else 1.0,
+            top_p=cfg.top_p,
         )
         result = await completer(observation, stop_condition)
         message, _ = renderer.parse_response(result.tokens)
         response_text = message.get("content", "")
 
-        parsed = parse_structured_response(response_text)
+        if cfg.kevin_prompt:
+            parsed = parse_kevin_response(response_text)
+        else:
+            parsed = parse_structured_response(response_text)
         kernel_code = parsed.kernel if parsed.kernel else response_text
 
         # Evaluate
@@ -289,9 +335,14 @@ async def evaluate_problem_multiturn(
         # Build feedback for next turn
         feedback = build_eval_feedback(eval_result)
 
-        # Store raw content (strip thinking)
-        if "</think>" in response_text:
+        # Store raw content (strip thinking, match Bob's EOS logic)
+        eos_token = getattr(tokenizer, "eos_token", None) if tokenizer else None
+        has_think_close = "</think>" in response_text
+        has_eos = eos_token is not None and eos_token in response_text
+        if has_think_close and (has_eos or eos_token is None):
             raw_content = response_text.split("</think>")[-1].lstrip("\n")
+        elif eos_token is not None:
+            raw_content = eos_token
         else:
             raw_content = response_text
         history.append({"raw_content": raw_content, "feedback": feedback})
@@ -393,13 +444,17 @@ async def run_evaluation(cfg: EvalConfig) -> dict[str, Any]:
     logger.info(f"Evaluating {len(problems)} problems from level {cfg.level}")
 
     # Evaluate each problem
-    eval_fn = evaluate_problem_multiturn if cfg.multiturn_enabled else evaluate_problem
     results = []
     for problem in tqdm(problems, desc="Evaluating"):
         try:
-            result = await eval_fn(
-                sampling_client, problem, renderer, cfg
-            )
+            if cfg.multiturn_enabled:
+                result = await evaluate_problem_multiturn(
+                    sampling_client, problem, renderer, cfg, tokenizer=tokenizer
+                )
+            else:
+                result = await evaluate_problem(
+                    sampling_client, problem, renderer, cfg
+                )
             results.append(result)
         except Exception as e:
             logger.error(f"Error evaluating problem {problem.problem_id}: {e}")

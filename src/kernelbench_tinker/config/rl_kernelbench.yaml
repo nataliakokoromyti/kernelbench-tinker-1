@@ -25,6 +25,8 @@ learning_rate: 0.000002  # 2e-6 as explicit float
 # =============================================================================
 max_tokens: 16384
 temperature: 0.9
+top_p: 1.0                             # Nucleus sampling (1.0 = disabled)
+seed: null                             # Random seed for generation (null = random)
 
 # Response length extension: extend max_tokens mid-training as the model
 # attempts more sophisticated solutions.  0 = disabled.

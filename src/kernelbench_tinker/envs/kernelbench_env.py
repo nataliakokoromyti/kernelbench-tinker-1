@@ -511,6 +511,9 @@ class KernelBenchDatasetBuilder(RLDatasetBuilder):
 
     # Test split
     test_fraction: float = 0.1
+    # Explicit holdout indices per level (overrides test_fraction when set)
+    # Format: {level: [problem_ids]} e.g. {1: [3,10,25], 2: [10,20,30]}
+    holdout_indices: dict[int, list[int]] | None = None
 
     # Prompt configuration
     prompt_option: str = "one_shot"  # "zero_shot", "one_shot", "few_shot"
@@ -558,7 +561,22 @@ class KernelBenchDatasetBuilder(RLDatasetBuilder):
             )
 
         # Split into train/test
-        if self.test_fraction > 0 and len(all_problems) > 1:
+        if self.holdout_indices:
+            # Explicit holdout: separate by (level, problem_id) membership
+            holdout_set = {
+                (lvl, pid)
+                for lvl, pids in self.holdout_indices.items()
+                for pid in pids
+            }
+            train_problems = [
+                p for p in all_problems
+                if (p.level, p.problem_id) not in holdout_set
+            ]
+            test_problems = [
+                p for p in all_problems
+                if (p.level, p.problem_id) in holdout_set
+            ] or None
+        elif self.test_fraction > 0 and len(all_problems) > 1:
             n_test = max(1, int(len(all_problems) * self.test_fraction))
             # Use last N problems as test set for reproducibility
             train_problems = all_problems[:-n_test]

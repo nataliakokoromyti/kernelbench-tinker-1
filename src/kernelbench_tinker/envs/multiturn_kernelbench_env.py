@@ -35,6 +35,7 @@ from kernelbench_tinker.envs.kernelbench_client import (
     ParsedResponse,
     evaluate_kernel_async,
     get_reference_code,
+    parse_kevin_response,
     parse_structured_response,
 )
 from kernelbench_tinker.envs.kernelbench_env import build_system_prompt
@@ -47,24 +48,16 @@ from kernelbench_tinker.training.trace_logger import get_trace_logger
 
 logger = logging.getLogger(__name__)
 
-# Limits for feedback content included in refinement prompts
+# Limit for feedback content included in refinement prompts (char-based fallback)
 MAX_HISTORY_CONTEXT_LEN = 8000
-MAX_ERROR_LEN = 800
 
 # ---------------------------------------------------------------------------
 # Kevin-exact prompt constants (from bob-training/kernel-bench)
 # ---------------------------------------------------------------------------
 
-_KEVIN_PROBLEM_STATEMENT = """\
-Replace pytorch operators in the given architecture with raw CUDA kernels, \
-optimizing for performance on NVIDIA H100 (e.g. shared memory, kernel fusion, \
-warp primitives, vectorization...).
-Use torch.utils.cpp_extension.load_inline and name your optimized output \
-architecture ModelNew. You're not allowed to use torch.nn (except for \
-Parameter, containers, and init). The input and output have to be on CUDA device.
-Your answer must be the complete new architecture (no testing code, no other \
-code): it will be evaluated and you will be given feedback on its correctness \
-and speedup so you can keep iterating, trying to maximize the speedup.
+_KEVIN_PROBLEM_STATEMENT = """Replace pytorch operators in the given architecture with raw CUDA kernels, optimizing for performance on NVIDIA H100 (e.g. shared memory, kernel fusion, warp primitives, vectorization...).
+Use torch.utils.cpp_extension.load_inline and name your optimized output architecture ModelNew. You're not allowed to use torch.nn (except for Parameter, containers, and init). The input and output have to be on CUDA device.
+Your answer must be the complete new architecture (no testing code, no other code): it will be evaluated and you will be given feedback on its correctness and speedup so you can keep iterating, trying to maximize the speedup.
 After your answer, summarize your changes in a few sentences."""
 
 # Kevin's one-shot example: a simple element-wise add kernel
@@ -156,35 +149,32 @@ def build_eval_feedback(eval_result: KernelEvalResult) -> str:
     Each feedback string ends with the instruction to restart reasoning,
     matching the original Kevin training code's ``response_for_kernel_eval``.
     """
-    error_msg = (eval_result.get("error_message") or "")[:MAX_ERROR_LEN]
+    error_msg = eval_result.get("error_message") or ""
+    metadata = eval_result.get("metadata") or {}
+    error_type = metadata.get("error_type", "")
 
-    if not eval_result["format_ok"]:
-        if error_msg:
-            resp = (
-                "Your previous answer failed to be parsed due to not adhering "
-                f"to the desired formatting. Here's the error message: {error_msg}.\n"
-            )
-        else:
-            resp = (
-                "Your previous answer failed to be parsed due to not adhering "
-                "to the desired formatting.\n"
-            )
+    if not eval_result["format_ok"] or error_type == "parsing_error":
+        resp = (
+            "Your previous answer failed to be parsed due to not adhering "
+            f"to the desired formatting. Here's the error message: {error_msg}.\n"
+        )
     elif not eval_result["compiled"]:
         resp = (
             "Your previous answer failed to compile. "
             f"Here's the error message: {error_msg}.\n"
         )
+    elif error_type == "runtime_error" or (not eval_result["correctness"] and error_msg):
+        # Bob: run == False → "compiled successfully but had runtime errors"
+        resp = (
+            "Your previous answer compiled successfully but had runtime "
+            f"errors. Here's the error message: {error_msg}.\n"
+        )
     elif not eval_result["correctness"]:
-        if error_msg:
-            resp = (
-                "Your previous answer compiled successfully but had runtime "
-                f"errors. Here's the error message: {error_msg}.\n"
-            )
-        else:
-            resp = (
-                "Your previous answer was incorrect. "
-                f"Here's the error message: {error_msg}.\n"
-            )
+        # Bob: correctness == False → "was incorrect"
+        resp = (
+            "Your previous answer was incorrect. "
+            f"Here's the error message: {error_msg}.\n"
+        )
     else:
         speedup = eval_result.get("speedup") or 0.0
         resp = (
@@ -304,7 +294,9 @@ class MultiTurnKernelBenchEnv(Env):
 
     def _build_initial_messages(self) -> list[renderers.Message]:
         messages: list[renderers.Message] = []
-        messages.append({"role": "system", "content": self._system_prompt})
+        # Kevin uses no system message at all; only add it when non-empty
+        if self._system_prompt:
+            messages.append({"role": "system", "content": self._system_prompt})
         if self.kevin_prompt:
             messages.append({"role": "user", "content": self._kevin_turn0_prompt})
         else:
@@ -343,7 +335,8 @@ class MultiTurnKernelBenchEnv(Env):
         truncation using ``MAX_HISTORY_CONTEXT_LEN``.
         """
         messages: list[renderers.Message] = []
-        messages.append({"role": "system", "content": self._system_prompt})
+        if self._system_prompt:
+            messages.append({"role": "system", "content": self._system_prompt})
 
         # Initial user message: problem without one-shot example
         if self.kevin_prompt:
@@ -363,7 +356,9 @@ class MultiTurnKernelBenchEnv(Env):
                 # Count tokens used by base messages, then fit history
                 # into the remaining budget, keeping most recent entries.
                 base_tokens = self._count_message_tokens(messages)
-                budget = self.prompt_max_tokens - base_tokens
+                # 32-token safety buffer for tokenizer boundary effects
+                # (Bob: prompt_max_len - 32)
+                budget = self.prompt_max_tokens - base_tokens - 32
 
                 # Walk history backwards, accumulating tokens
                 kept: list[dict] = []
@@ -421,7 +416,10 @@ class MultiTurnKernelBenchEnv(Env):
         message, _ = self.renderer.parse_response(action)
         response_text = message.get("content", "")
 
-        parsed = parse_structured_response(response_text)
+        if self.kevin_prompt:
+            parsed = parse_kevin_response(response_text)
+        else:
+            parsed = parse_structured_response(response_text)
         kernel_code = parsed.kernel
         format_ok = parsed.format_ok
 
@@ -455,10 +453,17 @@ class MultiTurnKernelBenchEnv(Env):
         state.step_scores.append(step_score)
 
         # Extract raw response content after </think> for history context.
-        # This matches the original Kevin code which stores everything after
-        # </think> as the assistant turn in multi-turn chat format.
-        if "</think>" in response_text:
+        # Matches Bob's logic: if both </think> and EOS are present, keep
+        # text after </think>.  Otherwise replace with just the EOS token
+        # (effectively a null assistant turn).
+        eos_token = getattr(self.tokenizer, "eos_token", None) if self.tokenizer else None
+        has_think_close = "</think>" in response_text
+        has_eos = eos_token is not None and eos_token in response_text
+        if has_think_close and (has_eos or eos_token is None):
             raw_content = response_text.split("</think>")[-1].lstrip('\n')
+        elif eos_token is not None:
+            # No </think> or no EOS — Bob replaces with just the EOS token
+            raw_content = eos_token
         else:
             raw_content = response_text
 
