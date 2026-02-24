@@ -365,6 +365,8 @@ class KernelBenchRLDataset(RLDataset):
         speedup_threshold: float | None = None,
         tokenizer: object | None = None,
         prompt_max_tokens: int | None = None,
+        kevin_prompt: bool = False,
+        inject_think_token: bool = False,
     ):
         self.problems = problems
         self.renderer = renderer
@@ -380,6 +382,8 @@ class KernelBenchRLDataset(RLDataset):
         self.speedup_threshold = speedup_threshold
         self.tokenizer = tokenizer
         self.prompt_max_tokens = prompt_max_tokens
+        self.kevin_prompt = kevin_prompt
+        self.inject_think_token = inject_think_token
 
         # Create shuffled indices for each epoch
         self._problem_indices: list[int] = []
@@ -428,6 +432,8 @@ class KernelBenchRLDataset(RLDataset):
                     speedup_threshold=self.speedup_threshold,
                     tokenizer=self.tokenizer,
                     prompt_max_tokens=self.prompt_max_tokens,
+                    kevin_prompt=self.kevin_prompt,
+                    inject_think_token=self.inject_think_token,
                 )
             else:
                 builder = KernelBenchEnvGroupBuilder(
@@ -453,6 +459,7 @@ class KernelBenchDatasetBuilder(RLDatasetBuilder):
 
     # Problem selection
     level: int = 1
+    levels: list[int] | None = None  # Train on multiple levels (overrides level when set)
     start_problem: int | None = None
     end_problem: int | None = None
     backend: str = "triton"
@@ -468,6 +475,8 @@ class KernelBenchDatasetBuilder(RLDatasetBuilder):
     max_turns: int = 1
     early_stop_on_correct: bool = False
     speedup_threshold: float | None = None
+    kevin_prompt: bool = False  # Use Kevin's exact prompt format for multi-turn
+    inject_think_token: bool = False  # Append <think>\n to generation prompts (Kevin-style)
 
     # Evaluation configuration
     num_correct_trials: int = 5
@@ -520,30 +529,33 @@ class KernelBenchDatasetBuilder(RLDatasetBuilder):
         Args:
             tokenizer: The tokenizer to use for the renderer. Required for most renderers.
         """
-        # Get problem IDs
-        problem_ids = get_problem_ids(
-            self.level,
-            start=self.start_problem,
-            end=self.end_problem,
-            dataset_src=self.dataset_src,
-        )
+        # Determine which levels to use
+        active_levels = self.levels if self.levels else [self.level]
 
-        # Create problems
-        all_problems = [
-            KernelBenchProblem(
-                level=self.level,
-                problem_id=pid,
-                backend=self.backend,
+        # Collect problems across all levels
+        all_problems: list[KernelBenchProblem] = []
+        for lvl in active_levels:
+            problem_ids = get_problem_ids(
+                lvl,
+                start=self.start_problem,
+                end=self.end_problem,
                 dataset_src=self.dataset_src,
-                prompt_option=self.prompt_option,
-                prompt_precision=self.prompt_precision or self.precision,
-                prompt_include_hardware=self.prompt_include_hardware,
-                prompt_gpu_name=self.prompt_gpu_name or (
-                    self.modal_gpu_type if self.prompt_include_hardware else None
-                ),
             )
-            for pid in problem_ids
-        ]
+            all_problems.extend(
+                KernelBenchProblem(
+                    level=lvl,
+                    problem_id=pid,
+                    backend=self.backend,
+                    dataset_src=self.dataset_src,
+                    prompt_option=self.prompt_option,
+                    prompt_precision=self.prompt_precision or self.precision,
+                    prompt_include_hardware=self.prompt_include_hardware,
+                    prompt_gpu_name=self.prompt_gpu_name or (
+                        self.modal_gpu_type if self.prompt_include_hardware else None
+                    ),
+                )
+                for pid in problem_ids
+            )
 
         # Split into train/test
         if self.test_fraction > 0 and len(all_problems) > 1:
@@ -613,6 +625,8 @@ class KernelBenchDatasetBuilder(RLDatasetBuilder):
             speedup_threshold=self.speedup_threshold,
             tokenizer=tokenizer,
             prompt_max_tokens=self.prompt_max_tokens,
+            kevin_prompt=self.kevin_prompt,
+            inject_think_token=self.inject_think_token,
         )
 
         # Create test dataset if we have test problems
@@ -632,6 +646,8 @@ class KernelBenchDatasetBuilder(RLDatasetBuilder):
                 speedup_threshold=self.speedup_threshold,
                 tokenizer=tokenizer,
                 prompt_max_tokens=self.prompt_max_tokens,
+                kevin_prompt=self.kevin_prompt,
+                inject_think_token=self.inject_think_token,
             )
 
         return train_dataset, test_dataset

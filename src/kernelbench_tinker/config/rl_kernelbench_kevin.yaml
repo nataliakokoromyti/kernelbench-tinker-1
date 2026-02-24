@@ -76,10 +76,13 @@ wandb_name: kevin-repro
 # =============================================================================
 dataset_builder:
     level: 1
+    levels: [1, 2]                    # Kevin trains on levels 1 and 2
     start_problem: null
     end_problem: null
     dataset_src: "huggingface"
     backend: "cuda"                   # Kevin uses CUDA backend
+    kevin_prompt: true                # Kevin's exact prompt format
+    inject_think_token: true          # Append <think>\n to force thinking mode
 
     batch_size: 8                     # Kevin: rollout_batch_size=8
     group_size: 16                    # Kevin: num_samples_per_prompt=64, num_passes=4 => 16

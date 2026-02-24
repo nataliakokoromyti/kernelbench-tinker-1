@@ -83,6 +83,7 @@ dataset_builder:
     # Problem Selection
     # ---------------------------------------------------------------------------
     level: 1                      # KernelBench level (1, 2, 3, or 4)
+    levels: null                  # Train on multiple levels (e.g. [1, 2]); overrides level when set
     start_problem: null           # First problem ID (null = start from 1)
     end_problem: null             # Last problem ID (null = all problems)
     dataset_src: "huggingface"    # "huggingface" or "local"

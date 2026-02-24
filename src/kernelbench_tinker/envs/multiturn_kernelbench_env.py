@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import Sequence
 
 import tinker
+from tinker.types.model_input_chunk import EncodedTextChunk
 from tinker_cookbook import renderers
 from tinker_cookbook.completers import StopCondition
 from tinker_cookbook.rl.types import (
@@ -33,6 +34,7 @@ from kernelbench_tinker.envs.kernelbench_client import (
     KernelEvalResult,
     ParsedResponse,
     evaluate_kernel_async,
+    get_reference_code,
     parse_structured_response,
 )
 from kernelbench_tinker.envs.kernelbench_env import build_system_prompt
@@ -48,6 +50,104 @@ logger = logging.getLogger(__name__)
 # Limits for feedback content included in refinement prompts
 MAX_HISTORY_CONTEXT_LEN = 8000
 MAX_ERROR_LEN = 800
+
+# ---------------------------------------------------------------------------
+# Kevin-exact prompt constants (from bob-training/kernel-bench)
+# ---------------------------------------------------------------------------
+
+_KEVIN_PROBLEM_STATEMENT = """\
+Replace pytorch operators in the given architecture with raw CUDA kernels, \
+optimizing for performance on NVIDIA H100 (e.g. shared memory, kernel fusion, \
+warp primitives, vectorization...).
+Use torch.utils.cpp_extension.load_inline and name your optimized output \
+architecture ModelNew. You're not allowed to use torch.nn (except for \
+Parameter, containers, and init). The input and output have to be on CUDA device.
+Your answer must be the complete new architecture (no testing code, no other \
+code): it will be evaluated and you will be given feedback on its correctness \
+and speedup so you can keep iterating, trying to maximize the speedup.
+After your answer, summarize your changes in a few sentences."""
+
+# Kevin's one-shot example: a simple element-wise add kernel
+_KEVIN_EXAMPLE = """\
+import torch.nn as nn
+from torch.utils.cpp_extension import load_inline
+
+# Define the custom CUDA kernel for element-wise addition
+elementwise_add_source = \"\"\"
+#include <torch/extension.h>
+#include <cuda_runtime.h>
+
+__global__ void elementwise_add_kernel(const float* a, const float* b, float* out, int size) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < size) {
+        out[idx] = a[idx] + b[idx];
+    }
+}
+
+torch::Tensor elementwise_add_cuda(torch::Tensor a, torch::Tensor b) {
+    auto size = a.numel();
+    auto out = torch::zeros_like(a);
+
+    const int block_size = 256;
+    const int num_blocks = (size + block_size - 1) / block_size;
+
+    elementwise_add_kernel<<<num_blocks, block_size>>>(a.data_ptr<float>(), b.data_ptr<float>(), out.data_ptr<float>(), size);
+
+    return out;
+}
+\"\"\"
+
+elementwise_add_cpp_source = (
+    "torch::Tensor elementwise_add_cuda(torch::Tensor a, torch::Tensor b);"
+)
+
+# Compile the inline CUDA code for element-wise addition
+elementwise_add = load_inline(
+    name="elementwise_add",
+    cpp_sources=elementwise_add_cpp_source,
+    cuda_sources=elementwise_add_source,
+    functions=["elementwise_add_cuda"],
+    verbose=True,
+    extra_cflags=[""],
+    extra_ldflags=[""],
+)
+
+
+class ModelNew(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.elementwise_add = elementwise_add
+
+    def forward(self, a, b):
+        return self.elementwise_add.elementwise_add_cuda(a, b)"""
+
+
+def _fetch_model_class(src: str) -> str:
+    """Extract everything up to and including the Model class, matching Kevin's fetch_info."""
+    out = ""
+    in_model = False
+    for line in (line + "\n" for line in src.splitlines()):
+        if in_model and line != "\n" and not (line.startswith(" ") or line.startswith("\t")):
+            break
+        if line == "class Model(nn.Module):\n":
+            in_model = True
+        out += line
+    return out
+
+
+def build_kevin_prompt(ref_code: str) -> str:
+    """Build Kevin's exact refinement prompt from raw reference code."""
+    prompt = f"You are given the following architecture:\n\n```\n{_fetch_model_class(ref_code)}```\n\n    "
+    prompt += _KEVIN_PROBLEM_STATEMENT
+    prompt += f"""Here's an example:\n```\n{_KEVIN_EXAMPLE}\n```\n"""
+    return prompt
+
+
+def build_kevin_base_prompt(ref_code: str) -> str:
+    """Kevin's refinement prompt without the one-shot example (for turns > 0)."""
+    prompt = f"You are given the following architecture:\n\n```\n{_fetch_model_class(ref_code)}```\n\n    "
+    prompt += _KEVIN_PROBLEM_STATEMENT
+    return prompt
 
 
 def build_eval_feedback(eval_result: KernelEvalResult) -> str:
@@ -146,6 +246,8 @@ class MultiTurnKernelBenchEnv(Env):
         speedup_threshold: float | None = None,
         tokenizer: object | None = None,
         prompt_max_tokens: int | None = None,
+        kevin_prompt: bool = False,
+        inject_think_token: bool = False,
     ):
         self.problem = problem
         self.renderer = renderer
@@ -156,10 +258,20 @@ class MultiTurnKernelBenchEnv(Env):
         self.speedup_threshold = speedup_threshold
         self.tokenizer = tokenizer
         self.prompt_max_tokens = prompt_max_tokens
+        self.kevin_prompt = kevin_prompt
+        self.inject_think_token = inject_think_token
 
         self._system_prompt = system_prompt or build_system_prompt(
             problem.backend, multiturn=True
         )
+
+        # Pre-build Kevin prompts if enabled (requires raw reference code)
+        if self.kevin_prompt:
+            ref_code = get_reference_code(
+                problem.level, problem.problem_id, problem.dataset_src
+            )
+            self._kevin_turn0_prompt = build_kevin_prompt(ref_code)
+            self._kevin_base_prompt = build_kevin_base_prompt(ref_code)
 
         self._current_prompt_messages: list[renderers.Message] | None = None
         self._current_observation: tinker.ModelInput | None = None
@@ -168,6 +280,19 @@ class MultiTurnKernelBenchEnv(Env):
     @property
     def stop_condition(self) -> StopCondition:
         return self.renderer.get_stop_sequences()
+
+    def _append_think_token(self, observation: tinker.ModelInput) -> tinker.ModelInput:
+        """Append ``<think>\\n`` tokens to force thinking mode (Kevin-style).
+
+        Bob's code appends ``+ "<think>\\n"`` to every generation prompt
+        *after* the chat template is applied.  In Tinker the renderer
+        already adds the assistant turn prefix, so we just tokenize and
+        append the think tag to the ModelInput.
+        """
+        if not self.inject_think_token or self.tokenizer is None:
+            return observation
+        think_ids = self.tokenizer.encode("<think>\n", add_special_tokens=False)
+        return observation.append(EncodedTextChunk(tokens=think_ids))
 
     @property
     def state(self) -> MultiTurnState:
@@ -180,7 +305,10 @@ class MultiTurnKernelBenchEnv(Env):
     def _build_initial_messages(self) -> list[renderers.Message]:
         messages: list[renderers.Message] = []
         messages.append({"role": "system", "content": self._system_prompt})
-        messages.append({"role": "user", "content": self.problem.prompt})
+        if self.kevin_prompt:
+            messages.append({"role": "user", "content": self._kevin_turn0_prompt})
+        else:
+            messages.append({"role": "user", "content": self.problem.prompt})
         return messages
 
     def _count_message_tokens(self, messages: list[renderers.Message]) -> int:
@@ -218,9 +346,13 @@ class MultiTurnKernelBenchEnv(Env):
         messages.append({"role": "system", "content": self._system_prompt})
 
         # Initial user message: problem without one-shot example
+        if self.kevin_prompt:
+            base = self._kevin_base_prompt
+        else:
+            base = self.problem.base_prompt
         messages.append({
             "role": "user",
-            "content": self.problem.base_prompt + "Here are your previous attempts:\n",
+            "content": base + "Here are your previous attempts:\n",
         })
 
         if self.state.history:
@@ -277,6 +409,7 @@ class MultiTurnKernelBenchEnv(Env):
         )
         messages = self._build_initial_messages()
         observation = self.renderer.build_generation_prompt(messages)
+        observation = self._append_think_token(observation)
         self._current_prompt_messages = messages
         self._current_observation = observation
         return observation, self.stop_condition
@@ -409,6 +542,7 @@ class MultiTurnKernelBenchEnv(Env):
         else:
             messages = self._build_refinement_messages()
             next_observation = self.renderer.build_generation_prompt(messages)
+            next_observation = self._append_think_token(next_observation)
             self._current_prompt_messages = messages
             self._current_observation = next_observation
 
@@ -506,6 +640,8 @@ class MultiTurnKernelBenchEnvGroupBuilder(EnvGroupBuilder):
     speedup_threshold: float | None = None
     tokenizer: object | None = field(default=None, hash=False, compare=False)
     prompt_max_tokens: int | None = None
+    kevin_prompt: bool = False
+    inject_think_token: bool = False
 
     async def make_envs(self) -> Sequence[Env]:
         return [
@@ -520,6 +656,8 @@ class MultiTurnKernelBenchEnvGroupBuilder(EnvGroupBuilder):
                 speedup_threshold=self.speedup_threshold,
                 tokenizer=self.tokenizer,
                 prompt_max_tokens=self.prompt_max_tokens,
+                kevin_prompt=self.kevin_prompt,
+                inject_think_token=self.inject_think_token,
             )
             for _ in range(self.group_size)
         ]
