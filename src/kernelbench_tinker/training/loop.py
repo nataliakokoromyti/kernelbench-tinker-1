@@ -98,10 +98,9 @@ class TrainingConfig:
     max_tokens: int = 4096
     temperature: float = 1.0
 
-    # Response length extension (Kevin paper Section 4.4):
-    # Extend max_tokens mid-training as the model attempts more sophisticated
-    # solutions.  Set to 0 to disable.
-    max_tokens_extended: int = 0  # e.g. 22528 (22K) as in Kevin
+    # Response length extension: extend max_tokens mid-training as the
+    # model attempts more sophisticated solutions.  Set to 0 to disable.
+    max_tokens_extended: int = 0  # e.g. 22528 (22K)
     max_tokens_extend_after_step: int = 0  # Step at which to switch
 
     # Dataset configuration
@@ -115,15 +114,15 @@ class TrainingConfig:
     # Training configuration
     num_substeps: int = 1  # Optimizer steps per batch
     loss_fn: LossFnType = "importance_sampling"
-    max_grad_norm: float = 0.0  # 0.0 = no clipping; Kevin uses 0.05
+    max_grad_norm: float = 0.0  # 0.0 = no clipping
     warmup_ratio: float = 0.0  # Fraction of batches for linear LR warmup
     clip_epsilon_low: float = 0.0  # PPO clip lower bound (0.0 = use server default)
     clip_epsilon_high: float = 0.0  # PPO clip upper bound (Clip-High: 0.28)
 
-    # Constant length normalization (Kevin paper Section 6.1, ref [25] Dr. GRPO).
-    # Tinker sums per-token losses (no 1/|o_i| division), so we scale
-    # advantages by 1/constant_length_norm to get uniform gradient magnitude
-    # regardless of response length.  Set to 0 to disable.
+    # Constant length normalization (Dr. GRPO).  Tinker sums per-token
+    # losses (no 1/|o_i| division), so we scale advantages by
+    # 1/constant_length_norm to get uniform gradient magnitude regardless
+    # of response length.  Set to 0 to disable.
     constant_length_norm: int = 0  # e.g. max_tokens (16384)
 
     # KL regularization
@@ -766,7 +765,7 @@ async def run_training_loop(
         # Get batch of env group builders
         env_group_builders = train_dataset.get_batch(batch_idx)
 
-        # Response length extension (Kevin paper Section 4.4)
+        # Response length extension
         effective_max_tokens = cfg.max_tokens
         if (
             cfg.max_tokens_extended > 0
@@ -881,7 +880,7 @@ async def run_training_loop(
             else:
                 advantages = compute_advantages(trajectory_groups)
 
-            # Constant length normalization (Dr. GRPO / Kevin Section 6.1).
+            # Constant length normalization (Dr. GRPO).
             # Tinker sums per-token losses, so scaling advantages by
             # 1/C gives each response gradient magnitude proportional to
             # |o_i|/C instead of |o_i|.

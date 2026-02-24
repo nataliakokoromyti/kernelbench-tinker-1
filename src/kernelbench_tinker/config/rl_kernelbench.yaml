@@ -26,9 +26,8 @@ learning_rate: 0.000002  # 2e-6 as explicit float
 max_tokens: 16384
 temperature: 0.9
 
-# Response length extension (Kevin paper Section 4.4):
-# Extend max_tokens mid-training as the model attempts more sophisticated
-# solutions.  Kevin extends from 16K to 22K at step 30.
+# Response length extension: extend max_tokens mid-training as the model
+# attempts more sophisticated solutions.  0 = disabled.
 max_tokens_extended: 22528          # 22K tokens (0 = disabled)
 max_tokens_extend_after_step: 30    # Step at which to switch
 
@@ -53,10 +52,10 @@ warmup_ratio: 0.03                     # Linear LR warmup fraction
 clip_epsilon_low: 0.2                  # PPO clip lower bound
 clip_epsilon_high: 0.28                # PPO clip upper bound (Clip-High)
 
-# Constant length normalization (Kevin paper Section 6.1 / Dr. GRPO).
+# Constant length normalization (Dr. GRPO).
 # Tinker sums per-token losses; this scales advantages by 1/C so
 # gradient magnitude is proportional to |o_i|/C, not |o_i|.
-# Set to max_tokens for the Kevin paper's approach.  0 = disabled.
+# Set to max_tokens for uniform gradient magnitude.  0 = disabled.
 constant_length_norm: 16384
 
 # KL Regularization (optional)
