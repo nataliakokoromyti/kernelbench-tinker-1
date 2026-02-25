@@ -50,6 +50,8 @@ logger = logging.getLogger(__name__)
 
 # Limit for feedback content included in refinement prompts (char-based fallback)
 MAX_HISTORY_CONTEXT_LEN = 8000
+# Rough chars-per-token estimate used when tokenizer has no encode method
+_CHARS_PER_TOKEN = 4
 
 # ---------------------------------------------------------------------------
 # Kevin-exact prompt constants (from bob-training/kernel-bench)
@@ -116,7 +118,7 @@ class ModelNew(nn.Module):
 
 
 def _fetch_model_class(src: str) -> str:
-    """Extract everything up to and including the Model class, matching Kevin's fetch_info."""
+    """Extract everything up to and including the Model class from reference source."""
     out = ""
     in_model = False
     for line in (line + "\n" for line in src.splitlines()):
@@ -129,7 +131,7 @@ def _fetch_model_class(src: str) -> str:
 
 
 def build_kevin_prompt(ref_code: str) -> str:
-    """Build Kevin's exact refinement prompt from raw reference code."""
+    """Build the multi-turn prompt with one-shot example (turn 0)."""
     prompt = f"You are given the following architecture:\n\n```\n{_fetch_model_class(ref_code)}```\n\n    "
     prompt += _KEVIN_PROBLEM_STATEMENT
     prompt += f"""Here's an example:\n```\n{_KEVIN_EXAMPLE}\n```\n"""
@@ -137,18 +139,29 @@ def build_kevin_prompt(ref_code: str) -> str:
 
 
 def build_kevin_base_prompt(ref_code: str) -> str:
-    """Kevin's refinement prompt without the one-shot example (for turns > 0)."""
+    """Build the multi-turn prompt without one-shot example (turns > 0)."""
     prompt = f"You are given the following architecture:\n\n```\n{_fetch_model_class(ref_code)}```\n\n    "
     prompt += _KEVIN_PROBLEM_STATEMENT
     return prompt
 
 
-def build_eval_feedback(eval_result: KernelEvalResult) -> str:
-    """Build a human-readable feedback string from an evaluation result.
+def extract_raw_content(response_text: str, eos_token: str | None = None) -> str:
+    """Extract assistant content from a response, stripping the thinking block.
 
-    Each feedback string ends with the instruction to restart reasoning,
-    matching the original Kevin training code's ``response_for_kernel_eval``.
+    Matches Bob's logic: keep text after ``</think>`` when present,
+    otherwise replace with the EOS token (null assistant turn).
     """
+    has_think_close = "</think>" in response_text
+    has_eos = eos_token is not None and eos_token in response_text
+    if has_think_close and (has_eos or eos_token is None):
+        return response_text.split("</think>")[-1].lstrip('\n')
+    elif eos_token is not None:
+        return eos_token
+    return response_text
+
+
+def build_eval_feedback(eval_result: KernelEvalResult) -> str:
+    """Build feedback string from an evaluation result for the next refinement turn."""
     error_msg = eval_result.get("error_message") or ""
     metadata = eval_result.get("metadata") or {}
     error_type = metadata.get("error_type", "")
@@ -272,13 +285,7 @@ class MultiTurnKernelBenchEnv(Env):
         return self.renderer.get_stop_sequences()
 
     def _append_think_token(self, observation: tinker.ModelInput) -> tinker.ModelInput:
-        """Append ``<think>\\n`` tokens to force thinking mode (Kevin-style).
-
-        Bob's code appends ``+ "<think>\\n"`` to every generation prompt
-        *after* the chat template is applied.  In Tinker the renderer
-        already adds the assistant turn prefix, so we just tokenize and
-        append the think tag to the ModelInput.
-        """
+        """Append ``<think>\\n`` tokens after the chat template to force thinking mode."""
         if not self.inject_think_token or self.tokenizer is None:
             return observation
         think_ids = self.tokenizer.encode("<think>\n", add_special_tokens=False)
@@ -310,29 +317,14 @@ class MultiTurnKernelBenchEnv(Env):
         total = 0
         for msg in messages:
             content = msg.get("content", "")
-            if hasattr(self.tokenizer, "encode"):
-                total += len(self.tokenizer.encode(content))
-            else:
-                # Rough fallback: ~4 chars per token
-                total += len(content) // 4
+            total += len(self.tokenizer.encode(content))
         return total
 
     def _build_refinement_messages(self) -> list[renderers.Message]:
-        """Build refinement prompt using multi-turn chat format.
+        """Build refinement prompt with history as alternating assistant/user turns.
 
-        Strips the one-shot example from the problem prompt and structures
-        the history as alternating assistant / user turns (matching the
-        original Kevin training code's ``_generate_vllm_refinement``).
-
-        The assistant turn contains the raw model output (everything after
-        ``</think>``); the user turn contains evaluation feedback with the
-        "Restart your reasoning" instruction.
-
-        When a tokenizer and ``prompt_max_tokens`` are provided, truncation
-        is token-based (Kevin-style): the base messages are tokenized and
-        the remaining token budget is used to keep as many recent history
-        entries as possible.  Otherwise, falls back to character-based
-        truncation using ``MAX_HISTORY_CONTEXT_LEN``.
+        Uses token-based truncation (oldest-first) when tokenizer and
+        prompt_max_tokens are set, otherwise falls back to char-based.
         """
         messages: list[renderers.Message] = []
         if self._system_prompt:
@@ -352,9 +344,8 @@ class MultiTurnKernelBenchEnv(Env):
             history = list(self.state.history)
 
             if self.tokenizer is not None and self.prompt_max_tokens is not None:
-                # Token-based truncation (Kevin-style):
-                # Count tokens used by base messages, then fit history
-                # into the remaining budget, keeping most recent entries.
+                # Token-based truncation: count base tokens, fit history
+                # into remaining budget, keeping most recent entries.
                 base_tokens = self._count_message_tokens(messages)
                 # 32-token safety buffer for tokenizer boundary effects
                 # (Bob: prompt_max_len - 32)
@@ -365,10 +356,7 @@ class MultiTurnKernelBenchEnv(Env):
                 used = 0
                 for entry in reversed(history):
                     entry_text = entry["raw_content"] + entry["feedback"]
-                    if hasattr(self.tokenizer, "encode"):
-                        entry_tokens = len(self.tokenizer.encode(entry_text))
-                    else:
-                        entry_tokens = len(entry_text) // 4
+                    entry_tokens = len(self.tokenizer.encode(entry_text))
                     if used + entry_tokens > budget and kept:
                         break
                     kept.append(entry)
@@ -452,20 +440,8 @@ class MultiTurnKernelBenchEnv(Env):
         )
         state.step_scores.append(step_score)
 
-        # Extract raw response content after </think> for history context.
-        # Matches Bob's logic: if both </think> and EOS are present, keep
-        # text after </think>.  Otherwise replace with just the EOS token
-        # (effectively a null assistant turn).
         eos_token = getattr(self.tokenizer, "eos_token", None) if self.tokenizer else None
-        has_think_close = "</think>" in response_text
-        has_eos = eos_token is not None and eos_token in response_text
-        if has_think_close and (has_eos or eos_token is None):
-            raw_content = response_text.split("</think>")[-1].lstrip('\n')
-        elif eos_token is not None:
-            # No </think> or no EOS — Bob replaces with just the EOS token
-            raw_content = eos_token
-        else:
-            raw_content = response_text
+        raw_content = extract_raw_content(response_text, eos_token)
 
         # Build feedback and store in history
         feedback = build_eval_feedback(eval_result)
@@ -672,6 +648,8 @@ class MultiTurnKernelBenchEnvGroupBuilder(EnvGroupBuilder):
         trajectory_group: list[Trajectory],
         env_group: Sequence[Env],
     ) -> list[tuple[float, Metrics]]:
+        # No-op: real rewards are computed per-step inside env.step() and
+        # overwritten by apply_discounted_returns before advantage estimation.
         return [(0.0, {}) for _ in trajectory_group]
 
     def logging_tags(self) -> list[str]:

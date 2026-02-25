@@ -60,7 +60,8 @@ class EvalConfig:
     # Generation configuration
     max_tokens: int = 4096
     temperature: float = 0.0  # Greedy for eval
-    top_p: float = 1.0  # Nucleus sampling (Kevin uses 0.95)
+    top_p: float = 1.0  # Nucleus sampling (1.0 = disabled)
+    seed: int | None = None  # Random seed for generation (null = random)
     num_samples: int = 1  # Samples per problem
 
     # Evaluation settings
@@ -91,7 +92,7 @@ class EvalConfig:
 
     # Multi-turn inference
     multiturn_enabled: bool = False
-    multiturn_max_turns: int = 8  # Kevin uses 8 refinement steps at inference
+    multiturn_max_turns: int = 8
     kevin_prompt: bool = False  # Use Kevin's exact prompt format
     inject_think_token: bool = False  # Append <think>\n to generation prompts
     prompt_max_tokens: int | None = None  # Token budget for history truncation
@@ -111,6 +112,11 @@ class EvalResult:
     best_speedup: float | None
 
 
+def _speedup_value(sample: dict[str, Any]) -> float:
+    speedup = sample.get("speedup")
+    return float(speedup) if isinstance(speedup, (int, float)) else 0.0
+
+
 async def generate_kernel(
     sampling_client: tinker.SamplingClient,
     problem: KernelBenchProblem,
@@ -118,16 +124,18 @@ async def generate_kernel(
     max_tokens: int,
     temperature: float,
 ) -> str:
-    """Generate a kernel for a problem."""
-    # Build prompt
-    messages = [
-        {"role": "system", "content": "You are an expert GPU kernel developer."},
-        {"role": "user", "content": problem.prompt},
-    ]
+    """Generate a kernel for a problem (single-turn)."""
+    from kernelbench_tinker.envs.kernelbench_env import build_system_prompt
+
+    system_prompt = build_system_prompt(problem.backend)
+    messages: list[dict[str, str]] = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": problem.prompt})
+
     observation = renderer.build_generation_prompt(messages)
     stop_condition = renderer.get_stop_sequences()
 
-    # Generate
     completer = TinkerTokenCompleter(
         sampling_client,
         max_tokens=max_tokens,
@@ -135,14 +143,9 @@ async def generate_kernel(
     )
     result = await completer(observation, stop_condition)
 
-    # Parse response
     message, _ = renderer.parse_response(result.tokens)
     content = message.get("content", "")
-
-    # Parse structured response (extracts <think> and <KERNEL> blocks)
     parsed = parse_structured_response(content)
-
-    # Return just the kernel code
     return parsed.kernel if parsed.kernel else content
 
 
@@ -195,15 +198,9 @@ async def evaluate_problem(
             **eval_result,
         })
 
-    def speedup_value(sample: dict[str, Any]) -> float:
-        speedup = sample.get("speedup")
-        return float(speedup) if isinstance(speedup, (int, float)) else 0.0
-
-    # Find best result
     correct_samples = [s for s in samples if s.get("correctness")]
     if correct_samples:
-        # Best by speedup
-        best = max(correct_samples, key=speedup_value)
+        best = max(correct_samples, key=_speedup_value)
     else:
         # Best by compilation
         compiled = [s for s in samples if s.get("compiled")]
@@ -244,6 +241,7 @@ async def evaluate_problem_multiturn(
         build_eval_feedback,
         build_kevin_prompt,
         build_kevin_base_prompt,
+        extract_raw_content,
     )
     from kernelbench_tinker.envs.kernelbench_env import build_system_prompt
     from kernelbench_tinker.envs.kernelbench_client import get_reference_code
@@ -304,6 +302,7 @@ async def evaluate_problem_multiturn(
             max_tokens=cfg.max_tokens,
             temperature=cfg.temperature if cfg.num_samples == 1 else 1.0,
             top_p=cfg.top_p,
+            seed=cfg.seed,
         )
         result = await completer(observation, stop_condition)
         message, _ = renderer.parse_response(result.tokens)
@@ -335,16 +334,8 @@ async def evaluate_problem_multiturn(
         # Build feedback for next turn
         feedback = build_eval_feedback(eval_result)
 
-        # Store raw content (strip thinking, match Bob's EOS logic)
         eos_token = getattr(tokenizer, "eos_token", None) if tokenizer else None
-        has_think_close = "</think>" in response_text
-        has_eos = eos_token is not None and eos_token in response_text
-        if has_think_close and (has_eos or eos_token is None):
-            raw_content = response_text.split("</think>")[-1].lstrip("\n")
-        elif eos_token is not None:
-            raw_content = eos_token
-        else:
-            raw_content = response_text
+        raw_content = extract_raw_content(response_text, eos_token)
         history.append({"raw_content": raw_content, "feedback": feedback})
 
         if cfg.max_kernel_code_chars is None:
@@ -361,13 +352,9 @@ async def evaluate_problem_multiturn(
             **eval_result,
         })
 
-    def speedup_value(sample: dict[str, Any]) -> float:
-        speedup = sample.get("speedup")
-        return float(speedup) if isinstance(speedup, (int, float)) else 0.0
-
     correct_samples = [s for s in samples if s.get("correctness")]
     if correct_samples:
-        best = max(correct_samples, key=speedup_value)
+        best = max(correct_samples, key=_speedup_value)
     else:
         compiled = [s for s in samples if s.get("compiled")]
         best = compiled[0] if compiled else samples[0]

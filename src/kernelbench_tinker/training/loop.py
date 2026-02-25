@@ -1,15 +1,4 @@
-"""
-RL Training Loop for KernelBench.
-
-This module implements the GRPO-style training loop using Tinker,
-following the patterns from tinker_cookbook.rl.train.
-
-The training loop:
-1. Samples rollouts from the current policy
-2. Evaluates kernels and computes rewards
-3. Computes advantages within groups
-4. Updates the model with importance sampling loss
-"""
+"""RL training loop for KernelBench (single-turn and multi-turn)."""
 
 from __future__ import annotations
 
@@ -62,11 +51,7 @@ from kernelbench_tinker.training.trace_logger import TraceLogger, set_trace_logg
 
 
 class KernelBenchTokenCompleter(TokenCompleter):
-    """Token completer with top_p and seed support.
-
-    Extends TinkerTokenCompleter to pass additional SamplingParams fields
-    that the base class does not expose (top_p, seed).
-    """
+    """Token completer with top_p and seed support."""
 
     def __init__(
         self,
@@ -108,11 +93,7 @@ def prepare_datum(
     clip_epsilon_low: float = 0.0,
     clip_epsilon_high: float = 0.0,
 ) -> tinker.Datum:
-    """Prepare a datum for forward-backward.
-
-    Removes the mask key (not expected by Tinker API) and, when using PPO loss,
-    adds per-token clip thresholds for asymmetric Clip-High clipping.
-    """
+    """Prepare a datum for forward-backward, adding PPO clip thresholds if configured."""
     inputs = {k: v for k, v in datum.loss_fn_inputs.items() if k != "mask"}
 
     if loss_fn == "ppo" and clip_epsilon_low > 0:
@@ -143,8 +124,8 @@ class TrainingConfig:
     # Generation configuration
     max_tokens: int = 4096
     temperature: float = 1.0
-    top_p: float = 1.0  # Nucleus sampling (Kevin uses 0.95)
-    seed: int | None = None  # Random seed for generation (Kevin uses 128)
+    top_p: float = 1.0  # Nucleus sampling (1.0 = disabled)
+    seed: int | None = None  # Random seed for generation (null = random)
 
     # Response length extension: extend max_tokens mid-training as the
     # model attempts more sophisticated solutions.  Set to 0 to disable.
@@ -211,21 +192,7 @@ async def do_group_rollout_and_filter(
     top_p: float = 1.0,
     seed: int | None = None,
 ) -> TrajectoryGroup | None:
-    """
-    Perform rollouts for a group and optionally filter constant reward groups.
-
-    Args:
-        sampling_client: Tinker sampling client
-        env_group_builder: Builder for environment group
-        max_tokens: Maximum tokens to generate
-        temperature: Sampling temperature
-        do_remove_constant_reward_groups: Whether to filter constant groups
-        top_p: Nucleus sampling probability
-        seed: Random seed for generation
-
-    Returns:
-        TrajectoryGroup or None if filtered out
-    """
+    """Perform rollouts for a group and optionally filter constant reward groups."""
     policy = KernelBenchTokenCompleter(
         sampling_client,
         max_tokens=max_tokens,
@@ -255,18 +222,10 @@ async def do_group_rollout_with_envs(
     top_p: float = 1.0,
     seed: int | None = None,
 ) -> tuple[TrajectoryGroup | None, Sequence[Env] | None]:
-    """
-    Perform rollouts and return both trajectory group and env references.
+    """Perform rollouts and return both trajectory group and env references.
 
-    Workaround: tinker_cookbook.rl.rollouts.do_group_rollout creates envs
-    internally but does not return them.  Multi-turn training needs the env
-    objects after rollouts to read per-step scores (env.get_step_scores())
-    for discounted return computation, so we replicate the rollout logic
-    here to retain the env references.
-
-    TODO(upstream): propose adding an optional `return_envs` flag (or a
-    separate do_group_rollout_with_envs) to tinker-cookbook so we can
-    drop this reimplementation.
+    Replicates do_group_rollout to retain env refs needed for reading
+    per-step scores during discounted return computation.
     """
     policy = KernelBenchTokenCompleter(
         sampling_client,
@@ -318,7 +277,7 @@ async def do_group_rollout_with_envs(
 def apply_discounted_returns_to_trajectories(
     trajectory_groups: list[TrajectoryGroup],
     env_groups: list[Sequence[Env]],
-    gamma: float = 0.4,
+    gamma: float,
     aggregation: str = "sum",
 ) -> None:
     """Replace per-step rewards with discounted returns for multi-turn training."""
@@ -341,13 +300,7 @@ def apply_discounted_returns_to_trajectories(
 def flatten_multiturn_trajectory_groups(
     trajectory_groups: list[TrajectoryGroup],
 ) -> list[TrajectoryGroup]:
-    """Flatten multi-turn trajectories so each turn is its own trajectory.
-
-    After discounted returns have been applied, each transition's reward is R_t.
-    Flattening makes each turn an independent "trajectory" so that:
-    - compute_multiturn_advantages normalizes across all m*n samples per task
-    - assemble_training_data creates one training datum per turn
-    """
+    """Flatten multi-turn trajectories so each turn is its own single-transition trajectory."""
     flattened = []
     for tg in trajectory_groups:
         new_trajectories = []
@@ -357,6 +310,8 @@ def flatten_multiturn_trajectory_groups(
                     Trajectory(transitions=[trans], final_ob=tinker.ModelInput.empty())
                 )
 
+        # Rewards/metrics placeholders: real values live in each transition's
+        # .reward (set by apply_discounted_returns) and .metrics fields.
         new_group = TrajectoryGroup(
             new_trajectories,
             [0.0] * len(new_trajectories),
@@ -370,19 +325,9 @@ def compute_multiturn_advantages(
     trajectory_groups: list[TrajectoryGroup],
     num_turns: int = 1,
 ) -> list[torch.Tensor]:
-    """Dr. GRPO advantage estimation matching Bob's ``group_norm``.
+    """Dr. GRPO advantage: subtract group mean, no std division.
 
-    Flattens all m * num_turns samples per problem and subtracts the
-    group mean.  Does NOT divide by std (Dr. GRPO style).
-
-    This matches the original Kevin training code::
-
-        rewards = rewards.reshape(-1, n_samples_per_prompt)
-        rewards = rewards - rewards.mean(-1, keepdim=True)
-
-    Each TrajectoryGroup should already be flattened so that each
-    "trajectory" is a single turn with reward = R_t.  The flattened
-    order is: traj0_turn0, traj0_turn1, ..., traj1_turn0, ...
+    Expects flattened trajectory groups (each "trajectory" = one turn).
     """
     advantages_P = []
     for tg in trajectory_groups:
@@ -398,14 +343,7 @@ def compute_multiturn_trajectory_metrics(
     trajectory_groups: list[TrajectoryGroup],
     env_groups: list[Sequence[Env]],
 ) -> dict[str, Any]:
-    """Compute aggregate metrics for multi-turn trajectories.
-
-    Metric semantics:
-    - reward/discounted_*: per-trajectory discounted returns (R_t), computed
-      after apply_discounted_returns_to_trajectories replaces step rewards.
-    - multiturn/raw_score_mean: raw per-step scores (S_t) from env.step(),
-      stored in trans.metrics["step_score"] before discounting.
-    """
+    """Compute aggregate metrics for multi-turn trajectories."""
     metrics: dict[str, Any] = {}
 
     turn_compiled: dict[int, list[float]] = {}
@@ -513,15 +451,7 @@ def compute_multiturn_trajectory_metrics(
 def compute_trajectory_metrics(
     trajectory_groups: list[TrajectoryGroup],
 ) -> dict[str, Any]:
-    """
-    Compute aggregate metrics from trajectory groups.
-
-    Args:
-        trajectory_groups: List of trajectory groups
-
-    Returns:
-        Dictionary of metrics
-    """
+    """Compute aggregate metrics from single-turn trajectory groups."""
     metrics: dict[str, Any] = {}
 
     all_rewards = []
@@ -600,22 +530,7 @@ async def train_step(
     clip_epsilon_low: float = 0.0,
     clip_epsilon_high: float = 0.0,
 ) -> list[torch.Tensor]:
-    """
-    Perform a training step with gradient accumulation.
-
-    Args:
-        data: List of training datums
-        training_client: Tinker training client
-        learning_rate: Learning rate
-        num_substeps: Number of optimizer steps
-        loss_fn: Loss function type
-        max_grad_norm: Max gradient norm for clipping (0.0 = no clipping)
-        clip_epsilon_low: PPO clip lower epsilon (0.0 = use server default)
-        clip_epsilon_high: PPO clip upper epsilon (Clip-High asymmetric)
-
-    Returns:
-        List of training logprobs tensors
-    """
+    """Perform a training step with gradient accumulation."""
     # Split data into substeps
     substep_size = max(1, len(data) // num_substeps)
     training_logprobs = []
@@ -654,19 +569,7 @@ async def save_checkpoint_and_get_sampling_client(
     save_every: int,
     start_batch: int = 0,
 ) -> tuple[tinker.SamplingClient, dict[str, Any]]:
-    """
-    Save checkpoint and get updated sampling client.
-
-    Args:
-        training_client: Tinker training client
-        batch_idx: Current batch index
-        log_path: Path for saving logs/checkpoints
-        save_every: Save checkpoint every N batches
-        start_batch: Starting batch index
-
-    Returns:
-        Tuple of (sampling_client, metrics)
-    """
+    """Save checkpoint and return updated sampling client."""
     metrics: dict[str, Any] = {}
 
     with timed("save_checkpoint", metrics):
@@ -694,15 +597,7 @@ async def save_checkpoint_and_get_sampling_client(
 async def run_training_loop(
     cfg: TrainingConfig,
 ) -> None:
-    """
-    Main RL training loop for KernelBench.
-
-    This implements synchronous on-policy training with GRPO-style
-    grouped rollouts.  Supports both single-turn and multi-turn modes.
-
-    Args:
-        cfg: Training configuration
-    """
+    """Main RL training loop for KernelBench (single-turn and multi-turn)."""
     is_multiturn = cfg.multiturn.enabled
     if is_multiturn:
         logger.info("Running in MULTI-TURN mode")

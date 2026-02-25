@@ -179,17 +179,12 @@ _KEVIN_PARSE_PATTERN = re.compile(
     r".*?</think>.*?```(.*?)```.*?$", re.DOTALL
 )
 
-# Fallback: any fenced code block (no </think> required)
-_KEVIN_PARSE_FALLBACK = re.compile(
-    r"```(?:python|cuda|cpp)?\s*\n?(.*?)```", re.DOTALL
-)
-
 
 def parse_kevin_response(text: str) -> ParsedResponse:
-    """Parse response using Kevin's regex (any code block after ``</think>``).
+    """Parse response using Kevin's exact regex.
 
-    Bob's parsing: ``r".*?</think>.*?```(.*?)```.*?$"```.
-    format_ok = True if a code block was extracted (no ModelNew check).
+    Returns format_ok=False when no match, no ``__global__``, or no
+    ``load_inline(`` — matching Bob's reward.py validation.
     """
     raw = text
     kernel = ""
@@ -197,16 +192,14 @@ def parse_kevin_response(text: str) -> ParsedResponse:
     match = _KEVIN_PARSE_PATTERN.match(text)
     if match:
         kernel = match.group(1).strip()
-        # Strip optional language tag on first line (e.g. "python\n...")
-        if kernel and "\n" in kernel:
-            first_line = kernel.split("\n", 1)[0].strip().lower()
-            if first_line in ("python", "cuda", "cpp", "c++", "c"):
-                kernel = kernel.split("\n", 1)[1]
-    else:
-        # Fallback: any code block (model may not have used </think>)
-        fb = _KEVIN_PARSE_FALLBACK.search(text)
-        if fb:
-            kernel = fb.group(1).strip()
+        for tag in ("python", "cpp", "cuda"):
+            if kernel.startswith(tag):
+                kernel = kernel[len(tag):].strip()
+                break
+
+    # Validate CUDA kernel structure (Bob: reward.py lines 364-368)
+    if kernel and ("__global__" not in kernel or "load_inline(" not in kernel):
+        kernel = ""
 
     format_ok = bool(kernel)
     return ParsedResponse(kernel=kernel, cot_summary="", raw=raw, format_ok=format_ok)
