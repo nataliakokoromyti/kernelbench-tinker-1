@@ -228,16 +228,9 @@ async def evaluate_problem_multiturn(
     cfg: EvalConfig,
     tokenizer: object | None = None,
 ) -> EvalResult:
-    """Evaluate a single problem using multi-turn refinement.
-
-    Runs up to ``cfg.multiturn_max_turns`` turns.  Each turn generates a
-    kernel, evaluates it, and feeds back the result as context for the
-    next turn.  The best result across all turns is returned.
-
-    When ``cfg.kevin_prompt`` is True, uses Kevin's exact prompt format,
-    think token injection, and Kevin-style response parsing.
-    """
+    """Evaluate a single problem using multi-turn refinement."""
     from kernelbench_tinker.envs.multiturn_kernelbench_env import (
+        MAX_HISTORY_CONTEXT_LEN,
         build_eval_feedback,
         build_kevin_prompt,
         build_kevin_base_prompt,
@@ -247,11 +240,10 @@ async def evaluate_problem_multiturn(
     from kernelbench_tinker.envs.kernelbench_client import get_reference_code
 
     samples: list[dict[str, Any]] = []
-    history: list[dict[str, str]] = []  # [{raw_content, feedback}]
+    history: list[dict[str, str]] = []
 
     system_prompt = build_system_prompt(problem.backend, multiturn=True)
 
-    # Pre-build Kevin prompts if enabled
     kevin_turn0_prompt = None
     kevin_base_prompt = None
     if cfg.kevin_prompt:
@@ -261,7 +253,6 @@ async def evaluate_problem_multiturn(
         kevin_turn0_prompt = build_kevin_prompt(ref_code)
         kevin_base_prompt = build_kevin_base_prompt(ref_code)
 
-    # Think token injection setup
     think_chunk = None
     if cfg.inject_think_token and tokenizer is not None:
         from tinker.types.model_input_chunk import EncodedTextChunk
@@ -269,7 +260,6 @@ async def evaluate_problem_multiturn(
         think_chunk = EncodedTextChunk(tokens=think_ids)
 
     for turn in range(cfg.multiturn_max_turns):
-        # Build messages
         messages: list[dict[str, str]] = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
@@ -288,7 +278,36 @@ async def evaluate_problem_multiturn(
                 "role": "user",
                 "content": base + "Here are your previous attempts:\n",
             })
-            for entry in history:
+
+            # Truncate history oldest-first to fit within token budget
+            visible_history = list(history)
+            if tokenizer is not None and cfg.prompt_max_tokens is not None:
+                base_tokens = sum(
+                    len(tokenizer.encode(m.get("content", "")))
+                    for m in messages
+                )
+                budget = cfg.prompt_max_tokens - base_tokens - 32
+                kept: list[dict[str, str]] = []
+                used = 0
+                for entry in reversed(visible_history):
+                    entry_tokens = len(tokenizer.encode(
+                        entry["raw_content"] + entry["feedback"]
+                    ))
+                    if used + entry_tokens > budget and kept:
+                        break
+                    kept.append(entry)
+                    used += entry_tokens
+                visible_history = list(reversed(kept))
+            else:
+                total_len = sum(
+                    len(e["raw_content"]) + len(e["feedback"])
+                    for e in visible_history
+                )
+                while total_len > MAX_HISTORY_CONTEXT_LEN and len(visible_history) > 1:
+                    removed = visible_history.pop(0)
+                    total_len -= len(removed["raw_content"]) + len(removed["feedback"])
+
+            for entry in visible_history:
                 messages.append({"role": "assistant", "content": entry["raw_content"]})
                 messages.append({"role": "user", "content": entry["feedback"]})
 
