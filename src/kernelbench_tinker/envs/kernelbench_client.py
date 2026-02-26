@@ -9,9 +9,7 @@ from __future__ import annotations
 
 import functools
 import hashlib
-import os
 import re
-import sys
 import time
 from collections import OrderedDict
 from dataclasses import dataclass, field
@@ -33,13 +31,20 @@ KERNEL_BLOCK_SIMPLE_PATTERN = re.compile(
     re.DOTALL | re.IGNORECASE
 )
 
+# Summary block pattern - reasoning summary inside <SUMMARY>...</SUMMARY>
+SUMMARY_BLOCK_PATTERN = re.compile(
+    r"<SUMMARY>(.*?)</SUMMARY>",
+    re.DOTALL | re.IGNORECASE
+)
+
 
 @dataclass
 class ParsedResponse:
     """Parsed model response with kernel blocks."""
-    kernel: str   # Kernel code (from <KERNEL> block or extracted code block)
-    raw: str      # Original raw response
-    format_ok: bool  # Whether we successfully extracted kernel code
+    kernel: str        # Kernel code (from <KERNEL> block or extracted code block)
+    cot_summary: str   # Reasoning summary (from <SUMMARY> block)
+    raw: str           # Original raw response
+    format_ok: bool    # Whether we successfully extracted kernel code
 
 
 def parse_structured_response(text: str) -> ParsedResponse:
@@ -94,8 +99,15 @@ def parse_structured_response(text: str) -> ParsedResponse:
     # Check if we got valid kernel code
     format_ok = bool(kernel) and ("class ModelNew" in kernel or "def forward" in kernel)
 
+    # Extract CoT summary from <SUMMARY> block
+    cot_summary = ""
+    summary_match = SUMMARY_BLOCK_PATTERN.search(text)
+    if summary_match:
+        cot_summary = summary_match.group(1).strip()
+
     return ParsedResponse(
         kernel=kernel,
+        cot_summary=cot_summary,
         raw=raw,
         format_ok=format_ok,
     )
@@ -114,8 +126,6 @@ class KernelEvalResult(TypedDict):
     error_message: str | None  # Error message if any
     code_length: int  # Length of the kernel code in characters (for tie-breaking)
     metadata: dict[str, Any]  # Additional metadata from evaluation
-
-
 
 
 def extract_code_block(text: str, languages: list[str] | None = None) -> str | None:
@@ -232,22 +242,7 @@ def get_prompt_for_problem(
     include_hardware: bool = False,
     gpu_name: str | None = None,
 ) -> str:
-    """
-    Get the prompt for a KernelBench problem.
-
-    Args:
-        level: KernelBench level (1, 2, 3, or 4)
-        problem_id: Problem ID within the level
-        backend: Backend type ("cuda", "triton", "cute", "tilelang")
-        option: Prompt option ("zero_shot", "one_shot", "few_shot")
-        dataset_src: Either "huggingface" or "local"
-        precision: Optional precision for prompt hints ("fp32", "fp16", "bf16")
-        include_hardware: Whether to include hardware guidance blocks
-        gpu_name: GPU identifier used when include_hardware is True (e.g., "A100")
-
-    Returns:
-        The prompt string for the model
-    """
+    """Get the prompt for a KernelBench problem."""
     ref_code = get_reference_code(level, problem_id, dataset_src)
 
     from kernelbench.prompt_constructor_toml import get_prompt_for_backend
@@ -280,32 +275,8 @@ async def evaluate_kernel_async(
     timeout: float = 120.0,
     cache_results: bool = True,
 ) -> KernelEvalResult:
-    """
-    Evaluate a generated kernel using Modal for isolated GPU execution.
-
-    This function provides:
-    - Hard timeout enforcement (kills bad kernels after timeout)
-    - Process isolation (each kernel runs in separate container)
-    - Protection against GPU corruption from bad kernels
-
-    Args:
-        level: KernelBench level (1, 2, 3, or 4)
-        problem_id: Problem ID within the level
-        backend: Backend type ("cuda", "triton", "cute", "tilelang")
-        kernel_code: The generated kernel source code
-        dataset_src: Either "huggingface" or "local"
-        num_correct_trials: Number of correctness trials to run
-        measure_performance: Whether to measure runtime performance
-        num_perf_trials: Number of performance trials to run
-        timeout: Timeout in seconds for evaluation (enforced by Modal)
-
-    Returns:
-        KernelEvalResult with evaluation results
-    """
-    from kernelbench_tinker.modal.evaluator import (
-        ModalEvaluatorConfig,
-        get_modal_evaluator,
-    )
+    """Evaluate a generated kernel using Modal for isolated GPU execution."""
+    from kernelbench_tinker.modal.evaluator import get_modal_evaluator
     t_total_start = time.perf_counter()
     timings: dict[str, float] = {}
 
@@ -380,9 +351,8 @@ async def evaluate_kernel_async(
         return default_result
     timings["reference_load_s"] = time.perf_counter() - ref_start
 
-    # Get Modal evaluator with configured timeout
-    config = ModalEvaluatorConfig(timeout=int(timeout))
-    evaluator = get_modal_evaluator(config)
+    # Use the globally configured Modal evaluator (set up by dataset builder / eval runner)
+    evaluator = get_modal_evaluator()
 
     # Run evaluation on Modal
     modal_start = time.perf_counter()
@@ -452,18 +422,7 @@ def get_problem_ids(
     end: int | None = None,
     dataset_src: str = "huggingface",
 ) -> list[int]:
-    """
-    Get list of problem IDs for a level.
-
-    Args:
-        level: KernelBench level
-        start: Start problem ID (inclusive, 1-indexed)
-        end: End problem ID (inclusive, 1-indexed)
-        dataset_src: Either "huggingface" or "local"
-
-    Returns:
-        List of problem IDs
-    """
+    """Get list of problem IDs for a level."""
     total = get_problem_count(level, dataset_src)
 
     if start is None:
@@ -487,6 +446,7 @@ class KernelBenchProblem:
     prompt_gpu_name: str | None = None
 
     _prompt: str | None = field(default=None, repr=False)
+    _base_prompt: str | None = field(default=None, repr=False)
 
     @property
     def prompt(self) -> str:
@@ -503,4 +463,25 @@ class KernelBenchProblem:
                 gpu_name=self.prompt_gpu_name,
             )
         return self._prompt
+
+    @property
+    def base_prompt(self) -> str:
+        """Get the zero-shot prompt (no examples) for refinement turns.
+
+        In multi-turn training, the one-shot example is included only on the
+        first turn.  Subsequent turns use this stripped-down prompt to save
+        context tokens.
+        """
+        if self._base_prompt is None:
+            self._base_prompt = get_prompt_for_problem(
+                self.level,
+                self.problem_id,
+                self.backend,
+                option="zero_shot",
+                dataset_src=self.dataset_src,
+                precision=self.prompt_precision,
+                include_hardware=self.prompt_include_hardware,
+                gpu_name=self.prompt_gpu_name,
+            )
+        return self._base_prompt
 

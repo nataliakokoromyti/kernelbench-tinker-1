@@ -24,17 +24,41 @@ learning_rate: 0.000002  # 2e-6 as explicit float
 # Generation Configuration
 # =============================================================================
 max_tokens: 16384
-temperature: 1.0
+temperature: 0.9
+top_p: 1.0                             # Nucleus sampling (1.0 = disabled)
+seed: null                             # Random seed for generation (null = random)
+
+# Response length extension: extend max_tokens mid-training as the model
+# attempts more sophisticated solutions.  0 = disabled.
+max_tokens_extended: 22528          # 22K tokens (0 = disabled)
+max_tokens_extend_after_step: 30    # Step at which to switch
+
+# =============================================================================
+# Multi-turn Configuration
+# =============================================================================
+multiturn:
+    enabled: false                     # true to enable iterative refinement
+    n: 4                               # Refinement turns per trajectory
+    gamma: 0.4                         # Discount factor for multi-turn returns
+    aggregation: "sum"                 # "sum" (reward many good kernels) or "max" (reward one great kernel)
+    early_stop_on_correct: false       # Stop episode when kernel passes all tests
+    speedup_threshold: null            # Required speedup before early stopping (null = any correct)
 
 # =============================================================================
 # Training Configuration
 # =============================================================================
 num_substeps: 2
-loss_fn: "importance_sampling"
+loss_fn: "ppo"
+max_grad_norm: 0.05                    # Gradient clipping (0.0 = disabled)
+warmup_ratio: 0.03                     # Linear LR warmup fraction
+clip_epsilon_low: 0.2                  # PPO clip lower bound
+clip_epsilon_high: 0.28                # PPO clip upper bound (Clip-High)
 
-# KL Regularization (optional)
-kl_penalty_coef: 0.0
-kl_discount_factor: 0.0
+# Constant length normalization (Dr. GRPO).
+# Tinker sums per-token losses; this scales advantages by 1/C so
+# gradient magnitude is proportional to |o_i|/C, not |o_i|.
+# Set to max_tokens for uniform gradient magnitude.  0 = disabled.
+constant_length_norm: 16384
 
 # Remove groups with constant rewards (no learning signal)
 remove_constant_reward_groups: true
@@ -57,6 +81,7 @@ dataset_builder:
     # Problem Selection
     # ---------------------------------------------------------------------------
     level: 1                      # KernelBench level (1, 2, 3, or 4)
+    levels: null                  # Train on multiple levels (e.g. [1, 2]); overrides level when set
     start_problem: null           # First problem ID (null = start from 1)
     end_problem: null             # Last problem ID (null = all problems)
     dataset_src: "huggingface"    # "huggingface" or "local"
@@ -71,7 +96,7 @@ dataset_builder:
     # Batching
     # ---------------------------------------------------------------------------
     batch_size: 8                 # Problems per batch
-    group_size: 16                # Rollouts per problem (for GRPO)
+    group_size: 16                # Rollouts per problem (GRPO group size, "m" in multi-turn)
     num_epochs: 22
     shuffle: true
     test_fraction: 0.1            # Fraction of problems for test set
@@ -84,6 +109,7 @@ dataset_builder:
     prompt_precision: null
     prompt_include_hardware: false
     prompt_gpu_name: null
+    prompt_max_tokens: null           # Token budget for multi-turn history truncation (null = char fallback)
 
     # ---------------------------------------------------------------------------
     # Evaluation (runs on Modal GPU containers)
@@ -107,6 +133,9 @@ dataset_builder:
     reward_correctness_weight: 0.3
     reward_speed_weight: 1.0
     reward_length_weight: 0.0
+    reward_speed_max_reward: 10.0     # Cap on speed reward component (set high to uncap)
+    reward_clip_min: null             # Lower bound on total reward (null = no clipping)
+    reward_clip_max: null             # Upper bound on total reward (null = no clipping)
 
     # ---------------------------------------------------------------------------
     # Reward Hacking Detection (Static Checker)

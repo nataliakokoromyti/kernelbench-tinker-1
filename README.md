@@ -282,7 +282,7 @@ Note the scope of this repo is an open-source implementation of KernelBench-Tink
 
 * More reward examples leveraging more fine-grained metrics
 * More reward hack checking
-* Multi-turn RL to have denser reward signal like [Kevin](https://arxiv.org/abs/2507.11948)
+* Multi-turn RL for denser reward signal (see [Kevin](https://arxiv.org/abs/2507.11948))
 * Improve Step time and training efficiency
 
 
